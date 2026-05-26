@@ -1,20 +1,52 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# 🌐 MacroFlux
 
-# Run and deploy your AI Studio app
+MacroFlux is a modern and optimized web platform built using **Next.js**, offering fast performance, clean architecture, and production-ready tooling. Designed for scalability and ease of development, MacroFlux is suitable for high-performance web applications.
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/ec1a86f3-7746-4740-b0de-34dcda303d1e
+## 🚀 Features
 
-## Run Locally
+- ⚡ **Next.js Framework** — SSR, SSG, ISR, and API routes support.
+- 📱 **Responsive Design** — Optimized UI for all screen sizes.
+- 🎨 **Modern Styling** — TailwindCSS / CSS Modules support.
+- 🛠️ **Developer Friendly** — Clean folder structure & reusable components.
+- 🔌 **API Support** — Backend logic via Next.js API routes.
+- 📦 **Production Ready** — Easily deploy to Vercel, Netlify, AWS, Docker, etc.
 
-**Prerequisites:**  Node.js
+---
+
+## 🏗️ Tech Stack
+
+- **Next.js 14+**
+- **React**
+- **TailwindCSS / CSS Modules**
+- JavaScript / TypeScript support
+- ESLint + Prettier code quality tools
+
+---
+
+## 📂 Project Structure
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+macroflux/
+├── app/ # Next.js App Router
+├── components/ # UI components
+├── public/ # Static files
+├── styles/ # Global styles / Tailwind
+├── package.json
+├── next.config.js
+└── README.md
+
+
+---
+
+## ▶️ Getting Started
+
+### **1️⃣ Install Dependencies**
+```bash
+npm install
+2️⃣ Start Development Server
+npm run dev
+
+App runs at:
+👉 http://localhost:3000
