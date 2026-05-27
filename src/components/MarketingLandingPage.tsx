@@ -114,7 +114,7 @@ export function MarketingLandingPage({ onLaunchAdmin }: MarketingLandingPageProp
           </nav>
 
           <div className="flex items-center space-x-2 sm:space-x-3">
-            <button 
+            {/* <button 
               onClick={onLaunchAdmin}
               className="py-1.5 px-2.5 sm:px-3 rounded-md bg-[#141414] border border-[#252525] text-[11px] sm:text-xs font-mono font-semibold hover:border-[#CCFF00] text-[#9A9A9A] hover:text-[#CCFF00] transition-all flex items-center space-x-1"
               id="btn-admin-access"
@@ -122,7 +122,7 @@ export function MarketingLandingPage({ onLaunchAdmin }: MarketingLandingPageProp
               <Users className="w-3.5 h-3.5 mr-0.5 sm:mr-1" />
               <span className="hidden xs:inline">Admin Panel</span>
               <span className="xs:hidden">Admin</span>
-            </button>
+            </button> */}
             <a 
               href="#pricing"
               className="py-1.5 px-3 sm:px-4 rounded-md bg-[#CCFF00] text-black text-[11px] sm:text-xs font-bold font-display hover:brightness-110 transition-all glow-btn"
