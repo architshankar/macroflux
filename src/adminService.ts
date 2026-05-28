@@ -110,3 +110,67 @@ export async function getNotificationBlasts(): Promise<any[]> {
   return data || [];
 }
 
+export async function getUserWorkouts(userId: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('performed_workouts')
+    .select(`
+      id,
+      performed_at,
+      user_summary_notes,
+      program_sessions (
+        session_label
+      ),
+      performed_sets ( 
+        id, 
+        set_number, 
+        set_type, 
+        weight_logged, 
+        reps_logged, 
+        rpe_achieved,
+        exercise_id,
+        exercises (
+          name
+        )
+      )
+    `)
+    .eq('user_id', userId)
+    .order('performed_at', { ascending: false });
+
+  if (error) throw error;
+  // Sort the sets by set_number for each workout
+  return (data || []).map(workout => ({
+    ...workout,
+    performed_sets: workout.performed_sets 
+      ? workout.performed_sets.sort((a: any, b: any) => a.set_number - b.set_number)
+      : []
+  }));
+}
+
+export async function deleteWorkout(workoutId: string): Promise<void> {
+  const { error } = await supabase
+    .from('performed_workouts')
+    .delete()
+    .eq('id', workoutId);
+
+  if (error) throw error;
+}
+
+export async function updateWorkout(workoutId: string, updates: { performed_at?: string, user_summary_notes?: string }): Promise<void> {
+  const { error } = await supabase
+    .from('performed_workouts')
+    .update(updates)
+    .eq('id', workoutId);
+
+  if (error) throw error;
+}
+
+export async function deleteWorkoutSet(setId: string): Promise<void> {
+  const { error } = await supabase
+    .from('performed_sets')
+    .delete()
+    .eq('id', setId);
+
+  if (error) throw error;
+}
+
+

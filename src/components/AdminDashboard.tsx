@@ -29,7 +29,7 @@ import {
 import { UserAccount, MetricCard, SystemNotification, SystemSettings } from '../types';
 import { INITIAL_NOTIFICATIONS, DEFAULT_SETTINGS } from '../data';
 import { useAdminAuth } from '../hooks/useAdminAuth';
-import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts } from '../adminService';
+import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts, getUserWorkouts, deleteWorkout, updateWorkout, deleteWorkoutSet } from '../adminService';
 
 interface AdminDashboardProps {
   onBackToLanding: () => void;
@@ -98,6 +98,94 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
 
   // View Activity Log State
   const [selectedLogUser, setSelectedLogUser] = useState<UserAccount | null>(null);
+  const [userWorkouts, setUserWorkouts] = useState<any[]>([]);
+  const [isLoadingWorkouts, setIsLoadingWorkouts] = useState<boolean>(false);
+  const [editingWorkoutId, setEditingWorkoutId] = useState<string | null>(null);
+  const [editWorkoutNotes, setEditWorkoutNotes] = useState<string>('');
+  const [editWorkoutDate, setEditWorkoutDate] = useState<string>('');
+  const [expandedWorkoutId, setExpandedWorkoutId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedLogUser) {
+      loadUserWorkouts(selectedLogUser.id);
+    } else {
+      setUserWorkouts([]);
+      setEditingWorkoutId(null);
+      setExpandedWorkoutId(null);
+    }
+  }, [selectedLogUser]);
+
+  const loadUserWorkouts = async (userId: string) => {
+    setIsLoadingWorkouts(true);
+    try {
+      const data = await getUserWorkouts(userId);
+      setUserWorkouts(data);
+    } catch (err) {
+      console.error(err);
+      showToast('Error loading user workouts');
+    } finally {
+      setIsLoadingWorkouts(false);
+    }
+  };
+
+  const handleDeleteWorkout = async (workoutId: string) => {
+    if (!window.confirm('Are you sure you want to delete this workout?')) return;
+    try {
+      await deleteWorkout(workoutId);
+      setUserWorkouts(prev => prev.filter(w => w.id !== workoutId));
+      showToast('Workout deleted successfully');
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting workout');
+    }
+  };
+
+  const handleStartEditWorkout = (workout: any) => {
+    setEditingWorkoutId(workout.id);
+    setEditWorkoutNotes(workout.user_summary_notes || '');
+    // Format timestamp string to datetime-local expected format (YYYY-MM-DDThh:mm)
+    const dateObj = new Date(workout.performed_at);
+    // ensure local time is roughly approximated for the input if needed, or simply extract ISO slice
+    const isoString = dateObj.toISOString().slice(0, 16); 
+    setEditWorkoutDate(isoString);
+  };
+
+  const handleSaveWorkout = async (workoutId: string) => {
+    try {
+      const updates = { 
+        performed_at: new Date(editWorkoutDate).toISOString(), 
+        user_summary_notes: editWorkoutNotes 
+      };
+      await updateWorkout(workoutId, updates);
+      setUserWorkouts(prev => prev.map(w => w.id === workoutId ? { ...w, ...updates } : w));
+      setEditingWorkoutId(null);
+      showToast('Workout updated successfully');
+    } catch (err) {
+      console.error(err);
+      showToast('Error updating workout');
+    }
+  };
+
+  const toggleWorkoutExpanded = (workoutId: string) => {
+    setExpandedWorkoutId(prev => prev === workoutId ? null : workoutId);
+  };
+
+  const handleDeleteSet = async (workoutId: string, setId: string) => {
+    if (!window.confirm('Are you sure you want to delete this specific set?')) return;
+    try {
+      await deleteWorkoutSet(setId);
+      setUserWorkouts(prev => prev.map(w => {
+        if (w.id === workoutId) {
+          return { ...w, performed_sets: w.performed_sets.filter((s: any) => s.id !== setId) };
+        }
+        return w;
+      }));
+      showToast('Set deleted successfully');
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting set');
+    }
+  };
 
   // New Push Notification Inputs
   const [notifTitle, setNotifTitle] = useState<string>('');
@@ -1039,47 +1127,139 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                         <div className="flex items-center gap-3 mb-1">
                           <Activity className="w-5 h-5 text-[#CCFF00]" />
                           <h3 className="font-display font-bold text-lg text-white">
-                            Athlete Biometric Activity Logs
+                            Athlete Workout History Log 
                           </h3>
                         </div>
                         <p className="text-zinc-500 font-mono text-[10px] uppercase mb-6 tracking-wider">
-                          Audit Trail mapping output indicators for: {selectedLogUser.name}
+                          All the workouts done by: {selectedLogUser.name}
                         </p>
 
                         <div className="space-y-4 max-h-80 overflow-y-auto pr-1 text-xs font-mono text-zinc-400">
-                          
-                          <div className="bg-[#0D0D0D] border border-zinc-800 p-3 rounded">
-                            <div className="text-emerald-400 font-semibold text-[10px] flex justify-between">
-                              <span>METRIC_INGEST_OK</span>
-                              <span>2026-05-26 09:12</span>
-                            </div>
-                            <p className="text-zinc-300 mt-1">Ingested heart rate strain average of 142 BPM during: <span className="text-white font-bold">{selectedLogUser.lastActiveWorkout}</span>. Calculated peak kinetic workload ratio at 1.05.</p>
-                          </div>
+                          {isLoadingWorkouts ? (
+                            <div className="text-center py-4">Loading workouts...</div>
+                          ) : userWorkouts.length === 0 ? (
+                            <div className="text-center py-4 text-zinc-500">No workout history found for this athlete.</div>
+                          ) : (
+                            userWorkouts.map(workout => (
+                              <div key={workout.id} className="bg-[#0D0D0D] border border-zinc-800 p-3 rounded">
+                                {editingWorkoutId === workout.id ? (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <label className="text-[#9A9A9A] tracking-wider block mb-1">Date Performed</label>
+                                      <input 
+                                        type="datetime-local" 
+                                        value={editWorkoutDate}
+                                        onChange={(e) => setEditWorkoutDate(e.target.value)}
+                                        className="w-full bg-[#141414] border border-zinc-800 focus:border-[#CCFF00] p-2 rounded text-white outline-none"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[#9A9A9A] tracking-wider block mb-1">Workout Notes / Summary</label>
+                                      <textarea 
+                                        value={editWorkoutNotes}
+                                        onChange={(e) => setEditWorkoutNotes(e.target.value)}
+                                        rows={3}
+                                        className="w-full bg-[#141414] border border-zinc-800 focus:border-[#CCFF00] p-2 rounded text-white outline-none resize-none"
+                                      ></textarea>
+                                    </div>
+                                    <div className="flex gap-2 pt-2">
+                                      <button 
+                                        onClick={() => setEditingWorkoutId(null)}
+                                        className="px-3 py-1.5 border border-zinc-800 hover:bg-[#1A1A1A] rounded text-[#9A9A9A] tracking-widest font-bold"
+                                      >
+                                        CANCEL
+                                      </button>
+                                      <button 
+                                        onClick={() => handleSaveWorkout(workout.id)}
+                                        className="px-3 py-1.5 bg-[#CCFF00] text-black hover:brightness-110 rounded tracking-widest font-bold flex-1"
+                                      >
+                                        SAVE
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div 
+                                      className="text-emerald-400 font-semibold text-[10px] flex justify-between items-center cursor-pointer select-none"
+                                      onClick={() => toggleWorkoutExpanded(workout.id)}
+                                    >
+                                      <span>
+                                        {new Date(workout.performed_at).toLocaleDateString()} at {new Date(workout.performed_at).toLocaleTimeString()}
+                                        {workout.program_sessions?.session_label && ` — ${workout.program_sessions.session_label}`}
+                                      </span>
+                                      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); handleStartEditWorkout(workout); }}
+                                          className="text-zinc-500 hover:text-[#CCFF00] transition-colors p-1"
+                                          title="Edit Workout"
+                                        >
+                                          <Edit3 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                          onClick={(e) => { e.stopPropagation(); handleDeleteWorkout(workout.id); }}
+                                          className="text-zinc-500 hover:text-red-400 transition-colors p-1"
+                                          title="Delete Workout"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div 
+                                      className="cursor-pointer select-none"
+                                      onClick={() => toggleWorkoutExpanded(workout.id)}
+                                    >
+                                      <p className="text-zinc-300 mt-2">
+                                        {workout.user_summary_notes || "No summary notes provided for this session."}
+                                      </p>
+                                      <p className="text-[10px] text-zinc-500 mt-2">
+                                        Sets Recorded: <span className="text-white font-bold">{workout.performed_sets?.length || 0}</span>
+                                        <span className="ml-2 font-normal lowercase">(click to {expandedWorkoutId === workout.id ? 'collapse' : 'expand'})</span>
+                                      </p>
+                                    </div>
 
-                          <div className="bg-[#0D0D0D] border border-zinc-800 p-3 rounded">
-                            <div className="text-emerald-400 font-semibold text-[10px] flex justify-between">
-                              <span>MACRO_ENGINE_CALIBRATE</span>
-                              <span>2026-05-25 18:40</span>
-                            </div>
-                            <p className="text-zinc-300 mt-1">Calibrated daily macro budgets securely. Protein set target at 185g, Carbs target set at 220g. Calorie boundary recalculated to: <span className="text-[#CCFF00] font-bold">{selectedLogUser.caloriesBudget}</span>.</p>
-                          </div>
-
-                          <div className="bg-[#0D0D0D] border border-zinc-800 p-3 rounded">
-                            <div className="text-sky-400 font-semibold text-[10px] flex justify-between">
-                              <span>HARDWARE_SYNC_OK</span>
-                              <span>2026-05-24 07:15</span>
-                            </div>
-                            <p className="text-zinc-300 mt-1">Initiated smartwatch local sync payload. Completed data ingestion in 0.8ms. Discharged 0 duplicate biometric records.</p>
-                          </div>
-
-                          <div className="bg-[#0D0D0D] border border-zinc-800 p-3 rounded">
-                            <div className="text-zinc-500 font-semibold text-[10px] flex justify-between">
-                              <span>ACCOUNT_REGISTRY_INIT</span>
-                              <span>{selectedLogUser.registrationDate}</span>
-                            </div>
-                            <p className="text-zinc-300 mt-1">Constructed raw database indexes for athletic identifier. Assigned security token and launched starting default metabolic calculations rules pipeline.</p>
-                          </div>
-
+                                    {/* Expanded Sets View */}
+                                    {expandedWorkoutId === workout.id && workout.performed_sets && (
+                                      <div className="mt-4 border-t border-zinc-800 pt-3 space-y-2">
+                                        <div className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Detailed Sets History</div>
+                                        {workout.performed_sets.length === 0 ? (
+                                          <div className="text-zinc-600 italic">No sets found for this workout.</div>
+                                        ) : (
+                                          workout.performed_sets.map((set: any, idx: number) => (
+                                            <div key={set.id} className="flex justify-between items-center bg-[#141414] p-2.5 rounded text-[10px]">
+                                              <div className="flex items-center gap-3">
+                                                <span className="text-zinc-600 font-mono w-4">#{idx + 1}</span>
+                                                <span className="text-zinc-300 font-semibold w-24 truncate" title={set.exercises?.name || 'Unknown Exercise'}>
+                                                  {set.exercises?.name || 'Unknown'}
+                                                </span>
+                                                <span className={`w-14 uppercase font-bold ${set.set_type === 'working' ? 'text-[#CCFF00]' : 'text-zinc-400'}`}>
+                                                  {set.set_type}
+                                                </span>
+                                                <span className="text-white font-bold tracking-wide">
+                                                  {set.reps_logged} reps <span className="text-zinc-500 font-normal mx-1">×</span> {set.weight_logged}
+                                                </span>
+                                                {set.rpe_achieved && (
+                                                  <span className="text-zinc-500 border border-zinc-700 px-1.5 rounded bg-zinc-900">
+                                                    RPE {set.rpe_achieved}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <button 
+                                                onClick={() => handleDeleteSet(workout.id, set.id)}
+                                                className="text-zinc-600 hover:text-red-400 transition-colors p-1"
+                                                title="Delete Set"
+                                              >
+                                                <X className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
+                                          ))
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            ))
+                          )}
                         </div>
 
                         <div className="mt-6 pt-4 border-t border-zinc-900">
@@ -1321,7 +1501,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                   </div>
 
                   {/* Past Blasts Grid */}
-                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-6 sm:p-8 space-y-6">
+                  {/* <div className="bg-[#141414] border border-[#252525] rounded-xl p-6 sm:p-8 space-y-6">
                     <div className="border-b border-zinc-900 pb-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Database className="w-5 h-5 text-[#CCFF00]" />
@@ -1368,7 +1548,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                         </tbody>
                       </table>
                     </div>
-                  </div>
+                  </div> */}
 
                   {/* System statistics tracker mockup widget */}
                   <div className="bg-[#141414] border border-[#252525] rounded-xl p-5 font-mono text-[10px] space-y-3">
