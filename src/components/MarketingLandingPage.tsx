@@ -1620,6 +1620,9 @@ export function MarketingLandingPage({ onLaunchAdmin }: MarketingLandingPageProp
             <span className="hover:text-white cursor-pointer transition-colors" onClick={() => window.open('https://www.instagram.com/macro_flux?igsh=MWszNHR1OWJod2ZrNg==', '_blank')}>
               Instagram
             </span>
+            <a href="/privacy" className="hover:text-white transition-colors">
+              Privacy Policy
+            </a>
             <span>TTV Resolution: Online</span>
             <span>Database: Supabase Secure</span>
           </div>

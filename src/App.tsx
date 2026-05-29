@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { MarketingLandingPage } from './components/MarketingLandingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { Login } from './components/Login';
+import PrivacyPolicyPage from './components/PrivacyPolicyPage';
 
-type ViewState = 'landing' | 'admin' | 'login';
+type ViewState = 'landing' | 'admin' | 'login' | 'privacy';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>('landing');
@@ -14,6 +15,7 @@ export default function App() {
       const path = window.location.pathname;
       if (path === '/admin') setCurrentView('admin');
       else if (path === '/login') setCurrentView('login');
+      else if (path === '/privacy') setCurrentView('privacy');
       else setCurrentView('landing');
     };
 
@@ -47,6 +49,9 @@ export default function App() {
           onBackToLanding={() => navigateTo('landing')} 
           onNavigateToLogin={() => navigateTo('login')}
         />
+      )}
+      {currentView === 'privacy' && (
+        <PrivacyPolicyPage />
       )}
     </>
   );
