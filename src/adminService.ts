@@ -15,7 +15,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
   ] = await Promise.all([
     supabase.from('profiles').select('*', { count: 'exact', head: true }),
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('subscription_tier', 'premium'),
-    supabase.from('workouts')
+    supabase.from('performed_workouts')
       .select('*', { count: 'exact', head: true })
       .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
   ]);
@@ -172,5 +172,153 @@ export async function deleteWorkoutSet(setId: string): Promise<void> {
 
   if (error) throw error;
 }
+
+// =====================================================================
+// PROGRAM MIGRATION LOGIC (Moved from seedProgram.ts)
+// =====================================================================
+export async function uploadProgramMigration(programData: any, onProgress: (msg: string) => void): Promise<void> {
+  try {
+    // 🔲 STEP 1: PARSE AND POPULATE EXERCISES DICTIONARY
+    onProgress("📦 Processing master exercise rows...");
+    const uniqueExercisesMap = new Map<string, { tutorial_url: string | null; substitutions: any[] }>();
+
+    for (const week of programData.weeks || []) {
+      for (const session of week.sessions || []) {
+        for (const ex of session.exercises || []) {
+          if (!uniqueExercisesMap.has(ex.name)) {
+            uniqueExercisesMap.set(ex.name, { 
+              tutorial_url: ex.tutorial_url || null, 
+              substitutions: ex.substitutions || [] 
+            });
+          }
+          for (const sub of ex.substitutions || []) {
+            if (!uniqueExercisesMap.has(sub.name)) {
+              uniqueExercisesMap.set(sub.name, { tutorial_url: sub.tutorial_url || null, substitutions: [] });
+            }
+          }
+        }
+      }
+    }
+
+    onProgress(`✨ Uploading ${uniqueExercisesMap.size} unique movements to global library...`);
+    const exerciseInsertPayload = Array.from(uniqueExercisesMap.entries()).map(([name, meta]) => ({
+      name,
+      tutorial_url: meta.tutorial_url
+    }));
+
+    const { data: dbExercises, error: exError } = await supabase
+      .from('exercises')
+      .upsert(exerciseInsertPayload, { onConflict: 'name' })
+      .select('id, name');
+
+    if (exError || !dbExercises) throw new Error(`Exercise library initialization failed: ${exError?.message || 'Unknown'}`);
+
+    const exLookup = new Map<string, string>();
+    dbExercises.forEach((row: any) => exLookup.set(row.name, row.id));
+
+    // 🔲 STEP 2: ESTABLISH MUTUAL CO-SELECTION MAPPINGS
+    onProgress("🔗 Linking alternative exercise swap paths...");
+    const substitutionJunctionPayload: any[] = [];
+    for (const [name, meta] of uniqueExercisesMap.entries()) {
+      const parentId = exLookup.get(name);
+      for (const sub of meta.substitutions) {
+        const subId = exLookup.get(sub.name);
+        if (parentId && subId) {
+          substitutionJunctionPayload.push({ exercise_id: parentId, substitution_id: subId });
+        }
+      }
+    }
+
+    if (substitutionJunctionPayload.length > 0) {
+      const { error: subError } = await supabase.from('exercise_substitutions').upsert(substitutionJunctionPayload);
+      if (subError) throw new Error(`Substitution setup failed: ${subError.message}`);
+    }
+
+    // 🔲 STEP 3: CREATE PARENT PROGRAM ENVELOPE RECORD
+    onProgress(`💾 Writing main program row: ${programData.program_name}`);
+    const { data: programRow, error: progError } = await supabase
+      .from('programs')
+      .insert({
+        title: programData.program_name,
+        description: programData.cycle_note || "Routine Layout Portfolio Block",
+        plan_style: "PPL",
+        total_weeks: programData.total_weeks
+      })
+      .select('id')
+      .single();
+
+    if (progError || !programRow) throw new Error(`Program entry failed: ${progError?.message || 'Unknown'}`);
+    const programId = programRow.id;
+
+    // 🔲 STEP 4: TIMELINE PARSING & UPLOAD LOOP
+    onProgress("⏳ Processing structural weeks, daily sessions, and sorting prescriptions...");
+    
+    for (const week of programData.weeks || []) {
+      const { data: weekRow, error: weekError } = await supabase
+        .from('program_weeks')
+        .insert({
+          program_id: programId,
+          week_number: week.week,
+          block_number: week.block || null,
+          block_label: week.block_label || null,
+          is_deload: week.is_deload || false
+        })
+        .select('id')
+        .single();
+
+      if (weekError || !weekRow) throw new Error(`Failed on Week ${week.week} blueprint: ${weekError?.message || 'Unknown'}`);
+      const weekId = weekRow.id;
+
+      for (const session of week.sessions || []) {
+        const { data: sessionRow, error: sessError } = await supabase
+          .from('program_sessions')
+          .insert({
+            week_id: weekId,
+            session_number: session.session_number,
+            session_label: session.session_label || null
+          })
+          .select('id')
+          .single();
+
+        if (sessError || !sessionRow) throw new Error(`Failed on Session ${session.session_number}: ${sessError?.message || 'Unknown'}`);
+        const sessionId = sessionRow.id;
+
+        // Build database prescription rows mapping structural array sequence seamlessly
+        const prescriptionBatch = (session.exercises || []).map((ex: any, index: number) => {
+          const matchedExId = exLookup.get(ex.name);
+          if (!matchedExId) throw new Error(`Critical reference fault: ${ex.name} missing lookup UUID.`);
+          
+          return {
+            session_id: sessionId,
+            exercise_id: matchedExId,
+            sequence_order: index + 1,
+            warm_up_sets: ex.warm_up_sets || null,
+            working_sets: ex.working_sets || null,
+            target_reps: ex.target_reps || null,
+            early_set_rpe: ex.early_set_rpe || null,
+            last_set_rpe: ex.last_set_rpe || null,
+            rest_time: ex.rest || null,
+            intensity_technique: ex.intensity_technique || null,
+            prescription_notes: ex.notes || null
+          };
+        });
+
+        if (prescriptionBatch.length > 0) {
+          const { error: prescrError } = await supabase
+            .from('program_prescriptions')
+            .insert(prescriptionBatch);
+
+          if (prescrError) throw new Error(`Prescription upload failed on day loop: ${prescrError.message}`);
+        }
+      }
+    }
+
+    onProgress("🥇 Database migration completed with absolute structural success!");
+
+  } catch (err: any) {
+    throw new Error(`CRITICAL CONTEXT MIGRATION FAILURE: ${err.message}`);
+  }
+}
+
 
 

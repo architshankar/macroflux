@@ -24,10 +24,13 @@ import {
   Eye,
   AlertTriangle,
   X,
-  Database
+  Database,
+  FileJson,
+  UploadCloud
 } from 'lucide-react';
 import { UserAccount, MetricCard, SystemNotification, SystemSettings } from '../types';
 import { INITIAL_NOTIFICATIONS, DEFAULT_SETTINGS } from '../data';
+import { ProgramUploader } from './ProgramUploader';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts, getUserWorkouts, deleteWorkout, updateWorkout, deleteWorkoutSet } from '../adminService';
 
@@ -87,7 +90,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
   };
 
   // Router Sidebar Tab Active ID
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'operations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'programs' | 'operations'>('overview');
 
   // Search User Query
   const [searchUserQuery, setSearchUserQuery] = useState<string>('');
@@ -422,6 +425,21 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
             </button>
 
             <button
+              onClick={() => setActiveTab('programs')}
+              className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
+                activeTab === 'programs' 
+                  ? 'bg-[#141414] border border-[#252525] text-[#CCFF00]' 
+                  : 'text-[#9A9A9A] hover:text-white bg-transparent border border-transparent'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <FileJson className="w-4 h-4" />
+                <span>Programs / Content</span>
+              </div>
+              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_3</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('operations')}
               className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
                 activeTab === 'operations' 
@@ -433,7 +451,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                 <Settings className="w-4 h-4" />
                 <span>Operational Control</span>
               </div>
-              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_3</span>
+              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_4</span>
             </button>
           </nav>
         </div>
@@ -491,6 +509,12 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                 className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'users' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
               >
                 Athletes
+              </button>
+              <button 
+                onClick={() => setActiveTab('programs')} 
+                className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'programs' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
+              >
+                Programs
               </button>
               <button 
                 onClick={() => setActiveTab('operations')} 
@@ -1278,7 +1302,21 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
               </motion.div>
             )}
 
-            {/* TAB 3: OPERATIONAL CONTROLS COMPONENT */}
+            {/* TAB 3: PROGRAMS CONTENT COMPONENT */}
+            {activeTab === 'programs' && (
+              <motion.div
+                key="programs"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="w-full"
+              >
+                <ProgramUploader showToast={showToast} />
+              </motion.div>
+            )}
+
+            {/* TAB 4: OPERATIONAL CONTROLS COMPONENT */}
             {activeTab === 'operations' && (
               <motion.div
                 key="operations"
