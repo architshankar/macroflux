@@ -455,17 +455,18 @@ const PrivacyPolicyPage: React.FC = () => {
               </div>
 
               <div className="check-item">
-                <div className="w-8 h-8 rounded-lg bg-[#CCFF00]/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Lock className="w-4 h-4 text-[#CCFF00]" />
-                </div>
-                <div>
-                  <h3 className="text-white font-semibold text-base mb-1">Data You Control</h3>
-                  <p className="text-[14px] leading-relaxed">
-                    You may request deletion of your account and all associated data at any time by contacting our support team.
-                    We will process deletion requests within 30 days.
-                  </p>
-                </div>
+              <div className="w-8 h-8 rounded-lg bg-[#CCFF00]/10 flex items-center justify-center shrink-0 mt-0.5">
+                <Lock className="w-4 h-4 text-[#CCFF00]" />
               </div>
+              <div>
+                <h3 className="text-white font-semibold text-base mb-1">Data Retention and Deletion</h3>
+                <p className="text-[14px] leading-relaxed">
+                  <strong>Data Retention:</strong> We retain your personal data and workout metadata securely via Supabase only for as long as your account remains active to provide continuous tracking history. 
+                  <br /><br />
+                  <strong>Data Deletion:</strong> You retain absolute control over your information. You may request the permanent deletion of your account and all associated metadata at any time by contacting our support team. Upon request, all data will be completely hard-deleted from our live database infrastructure within 30 days.
+                </p>
+              </div>
+            </div>
             </div>
           </div>
         </section>
