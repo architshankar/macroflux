@@ -562,12 +562,12 @@ export function ProgramUploader({ showToast }: ProgramUploaderProps) {
     setUploadProgress([]);
     setSuccessMessage('');
 
-    const logProgress = (msg: string) => {
-      setUploadProgress(prev => [...prev, msg]);
-    };
-
+    // Upload is now a single atomic backend call (create_shared_program RPC)
+    // instead of 6 sequential client-side writes, so there are no
+    // incremental steps left to report — uploadProgramMigration no longer
+    // takes a progress callback.
     try {
-      await uploadProgramMigration(parsedData, logProgress);
+      await uploadProgramMigration(parsedData);
       setSuccessMessage('Program successfully migrated to the database!');
       showToast('Program deployed successfully to backend.');
     } catch (err: any) {

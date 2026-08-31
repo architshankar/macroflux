@@ -1,50 +1,44 @@
-import { supabase } from './supabaseClient';
+import { apiClient } from './apiClient';
 import { UserAccount } from './types';
 
 export interface AdminMetrics {
   totalUsers: number;
   activeWorkoutsToday: number;
   premiumSubscriberRatio: number;
+  pendingTrainerApplications: number;
+  activeTrainerRelationships: number;
+  libraryProgramsCount: number;
+  pendingNotificationBlasts: number;
 }
 
 export async function getAdminMetrics(): Promise<AdminMetrics> {
-  const [
-    { count: totalUsers, error: errTotal },
-    { count: premiumUsers, error: errPremium },
-    { count: activeWorkoutsToday, error: errWorkouts }
-  ] = await Promise.all([
-    supabase.from('profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('subscription_tier', 'premium'),
-    supabase.from('performed_workouts')
-      .select('*', { count: 'exact', head: true })
-      .gte('created_at', new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
-  ]);
-
-  if (errTotal) throw errTotal;
-
-  const total = totalUsers || 0;
-  const premium = premiumUsers || 0;
+  const m = await apiClient.get<{
+    total_users: number;
+    active_workouts_today: number;
+    premium_subscriber_ratio: number;
+    pending_trainer_applications: number;
+    active_trainer_relationships: number;
+    library_programs_count: number;
+    pending_notification_blasts: number;
+  }>('/admin/metrics');
 
   return {
-    totalUsers: total,
-    activeWorkoutsToday: activeWorkoutsToday || 0,
-    premiumSubscriberRatio: total > 0 ? Number(((premium / total) * 100).toFixed(1)) : 0
+    totalUsers: m.total_users,
+    activeWorkoutsToday: m.active_workouts_today,
+    premiumSubscriberRatio: m.premium_subscriber_ratio,
+    pendingTrainerApplications: m.pending_trainer_applications,
+    activeTrainerRelationships: m.active_trainer_relationships,
+    libraryProgramsCount: m.library_programs_count,
+    pendingNotificationBlasts: m.pending_notification_blasts,
   };
 }
 
 export async function getUsers(page: number = 0, pageSize: number = 20): Promise<{ users: UserAccount[], total: number }> {
-  const from = page * pageSize;
-  const to = from + pageSize - 1;
+  const data = await apiClient.get<{ users: any[]; total: number }>(
+    `/admin/users?page=${page}&page_size=${pageSize}`
+  );
 
-  const { data, count, error } = await supabase
-    .from('profiles')
-    .select('*', { count: 'exact' })
-    .range(from, to)
-    .order('updated_at', { ascending: false }); // Using your updated_at instead of created_at
-
-  if (error) throw error;
-
-  const users: UserAccount[] = data.map((profile: any) => ({
+  const users: UserAccount[] = data.users.map((profile: any) => ({
     id: profile.id,
     name: profile.full_name || 'Unknown',
     email: profile.email || 'OAuth Login',
@@ -53,272 +47,222 @@ export async function getUsers(page: number = 0, pageSize: number = 20): Promise
     status: profile.status || 'active',
     workoutsCount: profile.workouts_count || 0,
     caloriesBudget: profile.target_calories ? `${profile.target_calories} kcal` : '2500 kcal',
-    durationMins: profile.duration_mins || 0,
+    durationMins: 0, // profile.duration_mins never existed in the schema — was already always undefined
     subscription_tier: profile.subscription_tier || 'free',
   }));
 
-  return { users, total: count || 0 };
+  return { users, total: data.total };
 }
 
 export async function updateUserSubscription(userId: string, subscription: 'free' | 'premium'): Promise<void> {
-  const { error } = await supabase
-    .from('profiles')
-    .update({ subscription_tier: subscription })
-    .eq('id', userId);
-
-  if (error) throw error;
+  await apiClient.patch(`/admin/users/${userId}/subscription`, { subscription_tier: subscription });
 }
 
-export async function toggleSuspendUser(userId: string, currentStatus: string): Promise<void> {
-  // Remote database RPC flag when triggering a user suspension
-  const { error } = await supabase.rpc('toggle_user_suspension', { p_user_id: userId, p_current_status: currentStatus });
-  if (error) {
-    console.error('Error with RPC, falling back to basic update', error);
-    // fallback
-    const { error: updateError } = await supabase
-      .from('profiles')
-      .update({ status: currentStatus === 'banned' ? 'active' : 'banned' })
-      .eq('id', userId);
-      
-    if (updateError) throw updateError;
-  }
+export async function toggleSuspendUser(userId: string, _currentStatus: string): Promise<void> {
+  // _currentStatus kept in the signature so AdminDashboard.tsx's call site
+  // doesn't need to change, but it's ignored — the backend re-reads status
+  // from the DB itself rather than trusting a client-supplied value.
+  await apiClient.post(`/admin/users/${userId}/toggle-suspend`);
 }
 
 export async function updateSystemConfig(configKey: string, configValue: any): Promise<void> {
-  const { error } = await supabase
-    .from('global_flags')
-    .upsert({ key: configKey, value: configValue, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  await apiClient.put(`/admin/config/${configKey}`, { value: configValue });
+}
 
-  if (error) throw error;
+export async function getConfig(): Promise<Record<string, any>> {
+  return apiClient.get('/admin/config');
 }
 
 export async function sendNotificationBlast(title: string, body: string, targetTier: string): Promise<void> {
-  const { error } = await supabase
-    .from('notification_blasts')
-    .insert([{ title, body, target_tier: targetTier }]);
-
-  if (error) throw error;
+  await apiClient.post('/admin/notifications', { title, body, target_tier: targetTier });
 }
 
 export async function getNotificationBlasts(): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('notification_blasts')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
+  return apiClient.get('/admin/notifications');
 }
 
 export async function getUserWorkouts(userId: string): Promise<any[]> {
-  const { data, error } = await supabase
-    .from('performed_workouts')
-    .select(`
-      id,
-      performed_at,
-      user_summary_notes,
-      program_sessions (
-        session_label
-      ),
-      performed_sets ( 
-        id, 
-        set_number, 
-        set_type, 
-        weight_logged, 
-        reps_logged, 
-        rpe_achieved,
-        exercise_id,
-        exercises (
-          name
-        )
-      )
-    `)
-    .eq('user_id', userId)
-    .order('performed_at', { ascending: false });
-
-  if (error) throw error;
-  // Sort the sets by set_number for each workout
-  return (data || []).map(workout => ({
-    ...workout,
-    performed_sets: workout.performed_sets 
-      ? workout.performed_sets.sort((a: any, b: any) => a.set_number - b.set_number)
-      : []
-  }));
+  return apiClient.get(`/admin/users/${userId}/workouts`);
 }
 
 export async function deleteWorkout(workoutId: string): Promise<void> {
-  const { error } = await supabase
-    .from('performed_workouts')
-    .delete()
-    .eq('id', workoutId);
-
-  if (error) throw error;
+  await apiClient.delete(`/admin/workouts/${workoutId}`);
 }
 
 export async function updateWorkout(workoutId: string, updates: { performed_at?: string, user_summary_notes?: string }): Promise<void> {
-  const { error } = await supabase
-    .from('performed_workouts')
-    .update(updates)
-    .eq('id', workoutId);
-
-  if (error) throw error;
+  await apiClient.patch(`/admin/workouts/${workoutId}`, updates);
 }
 
 export async function deleteWorkoutSet(setId: string): Promise<void> {
-  const { error } = await supabase
-    .from('performed_sets')
-    .delete()
-    .eq('id', setId);
-
-  if (error) throw error;
+  await apiClient.delete(`/admin/workout-sets/${setId}`);
 }
 
 // =====================================================================
-// PROGRAM MIGRATION LOGIC (Moved from seedProgram.ts)
+// TRAINERS
 // =====================================================================
-export async function uploadProgramMigration(programData: any, onProgress: (msg: string) => void): Promise<void> {
-  try {
-    // 🔲 STEP 1: PARSE AND POPULATE EXERCISES DICTIONARY
-    onProgress("📦 Processing master exercise rows...");
-    const uniqueExercisesMap = new Map<string, { tutorial_url: string | null; substitutions: any[] }>();
-
-    for (const week of programData.weeks || []) {
-      for (const session of week.sessions || []) {
-        for (const ex of session.exercises || []) {
-          if (!uniqueExercisesMap.has(ex.name)) {
-            uniqueExercisesMap.set(ex.name, { 
-              tutorial_url: ex.tutorial_url || null, 
-              substitutions: ex.substitutions || [] 
-            });
-          }
-          for (const sub of ex.substitutions || []) {
-            if (!uniqueExercisesMap.has(sub.name)) {
-              uniqueExercisesMap.set(sub.name, { tutorial_url: sub.tutorial_url || null, substitutions: [] });
-            }
-          }
-        }
-      }
-    }
-
-    onProgress(`✨ Uploading ${uniqueExercisesMap.size} unique movements to global library...`);
-    const exerciseInsertPayload = Array.from(uniqueExercisesMap.entries()).map(([name, meta]) => ({
-      name,
-      tutorial_url: meta.tutorial_url
-    }));
-
-    const { data: dbExercises, error: exError } = await supabase
-      .from('exercises')
-      .upsert(exerciseInsertPayload, { onConflict: 'name' })
-      .select('id, name');
-
-    if (exError || !dbExercises) throw new Error(`Exercise library initialization failed: ${exError?.message || 'Unknown'}`);
-
-    const exLookup = new Map<string, string>();
-    dbExercises.forEach((row: any) => exLookup.set(row.name, row.id));
-
-    // 🔲 STEP 2: ESTABLISH MUTUAL CO-SELECTION MAPPINGS
-    onProgress("🔗 Linking alternative exercise swap paths...");
-    const substitutionJunctionPayload: any[] = [];
-    for (const [name, meta] of uniqueExercisesMap.entries()) {
-      const parentId = exLookup.get(name);
-      for (const sub of meta.substitutions) {
-        const subId = exLookup.get(sub.name);
-        if (parentId && subId) {
-          substitutionJunctionPayload.push({ exercise_id: parentId, substitution_id: subId });
-        }
-      }
-    }
-
-    if (substitutionJunctionPayload.length > 0) {
-      const { error: subError } = await supabase.from('exercise_substitutions').upsert(substitutionJunctionPayload);
-      if (subError) throw new Error(`Substitution setup failed: ${subError.message}`);
-    }
-
-    // 🔲 STEP 3: CREATE PARENT PROGRAM ENVELOPE RECORD
-    onProgress(`💾 Writing main program row: ${programData.program_name}`);
-    const { data: programRow, error: progError } = await supabase
-      .from('programs')
-      .insert({
-        title: programData.program_name,
-        description: programData.cycle_note || "Routine Layout Portfolio Block",
-        plan_style: "PPL",
-        total_weeks: programData.total_weeks
-      })
-      .select('id')
-      .single();
-
-    if (progError || !programRow) throw new Error(`Program entry failed: ${progError?.message || 'Unknown'}`);
-    const programId = programRow.id;
-
-    // 🔲 STEP 4: TIMELINE PARSING & UPLOAD LOOP
-    onProgress("⏳ Processing structural weeks, daily sessions, and sorting prescriptions...");
-    
-    for (const week of programData.weeks || []) {
-      const { data: weekRow, error: weekError } = await supabase
-        .from('program_weeks')
-        .insert({
-          program_id: programId,
-          week_number: week.week,
-          block_number: week.block || null,
-          block_label: week.block_label || null,
-          is_deload: week.is_deload || false
-        })
-        .select('id')
-        .single();
-
-      if (weekError || !weekRow) throw new Error(`Failed on Week ${week.week} blueprint: ${weekError?.message || 'Unknown'}`);
-      const weekId = weekRow.id;
-
-      for (const session of week.sessions || []) {
-        const { data: sessionRow, error: sessError } = await supabase
-          .from('program_sessions')
-          .insert({
-            week_id: weekId,
-            session_number: session.session_number,
-            session_label: session.session_label || null
-          })
-          .select('id')
-          .single();
-
-        if (sessError || !sessionRow) throw new Error(`Failed on Session ${session.session_number}: ${sessError?.message || 'Unknown'}`);
-        const sessionId = sessionRow.id;
-
-        // Build database prescription rows mapping structural array sequence seamlessly
-        const prescriptionBatch = (session.exercises || []).map((ex: any, index: number) => {
-          const matchedExId = exLookup.get(ex.name);
-          if (!matchedExId) throw new Error(`Critical reference fault: ${ex.name} missing lookup UUID.`);
-          
-          return {
-            session_id: sessionId,
-            exercise_id: matchedExId,
-            sequence_order: index + 1,
-            warm_up_sets: ex.warm_up_sets || null,
-            working_sets: ex.working_sets || null,
-            target_reps: ex.target_reps || null,
-            early_set_rpe: ex.early_set_rpe || null,
-            last_set_rpe: ex.last_set_rpe || null,
-            rest_time: ex.rest || null,
-            intensity_technique: ex.intensity_technique || null,
-            prescription_notes: ex.notes || null
-          };
-        });
-
-        if (prescriptionBatch.length > 0) {
-          const { error: prescrError } = await supabase
-            .from('program_prescriptions')
-            .insert(prescriptionBatch);
-
-          if (prescrError) throw new Error(`Prescription upload failed on day loop: ${prescrError.message}`);
-        }
-      }
-    }
-
-    onProgress("🥇 Database migration completed with absolute structural success!");
-
-  } catch (err: any) {
-    throw new Error(`CRITICAL CONTEXT MIGRATION FAILURE: ${err.message}`);
-  }
+export interface AdminTrainer {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  bio: string | null;
+  specialties: string[];
+  headline: string | null;
+  years_experience: number | null;
+  created_at: string | null;
+  is_verified: boolean;
+  bio_hidden: boolean;
 }
 
+export async function getAllTrainers(): Promise<AdminTrainer[]> {
+  return apiClient.get('/admin/trainers');
+}
 
+export async function createTrainerAccount(payload: {
+  email: string;
+  password: string;
+  full_name?: string;
+  bio?: string;
+  specialties?: string[];
+}): Promise<AdminTrainer> {
+  return apiClient.post('/admin/trainers', payload);
+}
 
+export async function verifyTrainer(trainerId: string): Promise<void> {
+  await apiClient.post(`/admin/trainers/${trainerId}/verify`);
+}
+
+export async function rejectTrainer(trainerId: string): Promise<void> {
+  await apiClient.post(`/admin/trainers/${trainerId}/reject`);
+}
+
+export async function revokeTrainer(trainerId: string): Promise<void> {
+  await apiClient.post(`/admin/trainers/${trainerId}/revoke`);
+}
+
+export async function deleteTrainerAccount(trainerId: string): Promise<void> {
+  await apiClient.delete(`/admin/trainers/${trainerId}`);
+}
+
+export async function setTrainerBioHidden(trainerId: string, hidden: boolean): Promise<void> {
+  await apiClient.patch(`/admin/trainers/${trainerId}/bio-hidden`, { bio_hidden: hidden });
+}
+
+// =====================================================================
+// TRAINER-CLIENT RELATIONSHIPS
+// =====================================================================
+export interface TrainerClientRelationship {
+  id: string;
+  trainer_id: string;
+  client_id: string;
+  status: string;
+  trainer_full_name: string | null;
+  client_full_name: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  created_at: string;
+}
+
+export async function getTrainerClientRelationships(): Promise<TrainerClientRelationship[]> {
+  return apiClient.get('/admin/trainer-clients');
+}
+
+export async function forceCancelRelationship(relationshipId: string): Promise<void> {
+  await apiClient.post(`/admin/trainer-clients/${relationshipId}/force-cancel`);
+}
+
+// =====================================================================
+// EXERCISE LIBRARY
+// =====================================================================
+export interface AdminExercise {
+  id: string;
+  name: string;
+  tutorial_url: string | null;
+  tracking_type: string;
+  is_unilateral: boolean;
+  muscle_group: string | null;
+  is_retired: boolean;
+}
+
+export async function getAdminExercises(
+  search: string = '',
+  page: number = 0,
+  pageSize: number = 20
+): Promise<{ exercises: AdminExercise[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (search) params.set('search', search);
+  return apiClient.get(`/admin/exercises?${params.toString()}`);
+}
+
+export async function createExercise(payload: {
+  name: string;
+  tutorial_url?: string | null;
+  tracking_type?: string;
+  is_unilateral?: boolean;
+  muscle_group?: string | null;
+}): Promise<AdminExercise> {
+  return apiClient.post('/admin/exercises', payload);
+}
+
+export async function updateExercise(exerciseId: string, updates: Partial<AdminExercise>): Promise<AdminExercise> {
+  return apiClient.patch(`/admin/exercises/${exerciseId}`, updates);
+}
+
+// =====================================================================
+// EXERCISE MEDIA MATCHING
+// =====================================================================
+export interface ExerciseMedia {
+  id: string;
+  source_name: string;
+  body_part: string | null;
+  equipment: string | null;
+  muscle_group: string | null;
+  target: string | null;
+  image_path: string;
+  gif_path: string;
+  image_url: string | null;
+  gif_url: string | null;
+}
+
+export async function getExerciseMedia(search: string = '', page: number = 0): Promise<{ media: ExerciseMedia[]; total: number }> {
+  const params = new URLSearchParams({ page: String(page), page_size: '24' });
+  // Single free-text box in the UI maps to whichever facet looks like a match;
+  // body_part is the most commonly useful one, so that's what search targets.
+  if (search) params.set('body_part', search);
+  return apiClient.get(`/admin/exercise-media?${params.toString()}`);
+}
+
+export async function matchExerciseMedia(exerciseId: string, mediaId: string): Promise<AdminExercise> {
+  return apiClient.post(`/admin/exercises/${exerciseId}/media-match`, { media_id: mediaId });
+}
+
+// =====================================================================
+// PROGRAM LIBRARY / FEATURED
+// =====================================================================
+export interface AdminProgram {
+  id: string;
+  title: string;
+  description: string | null;
+  plan_style: string | null;
+  total_weeks: number;
+  is_featured: boolean;
+}
+
+export async function getAdminPrograms(): Promise<{ programs: AdminProgram[]; total: number }> {
+  return apiClient.get('/admin/programs?page=0&page_size=100');
+}
+
+export async function toggleFeatureProgram(programId: string): Promise<{ is_featured: boolean }> {
+  return apiClient.patch(`/admin/programs/${programId}/feature`);
+}
+
+// =====================================================================
+// PROGRAM UPLOAD
+// =====================================================================
+// Signature change from before: no onProgress callback. The old function
+// did 6 sequential, non-transactional Supabase writes with incremental
+// progress messages; the backend now does this as one atomic RPC call
+// (POST /admin/programs/upload -> create_shared_program), so there are no
+// real incremental steps left to report.
+export async function uploadProgramMigration(programData: any): Promise<void> {
+  await apiClient.post('/admin/programs/upload', programData);
+}

@@ -1,4 +1,4 @@
-import { UserAccount, MetricCard, SystemNotification, SystemSettings } from './types';
+import { UserAccount, MetricCard, SystemSettings } from './types';
 
 export const INITIAL_USERS: UserAccount[] = [
   {
@@ -108,23 +108,6 @@ export const INITIAL_METRICS: MetricCard[] = [
     change: '+22.1%',
     isPositive: true,
     history: [4500, 5200, 5900, 6800, 7400, 8100, 8924],
-  }
-];
-
-export const INITIAL_NOTIFICATIONS: SystemNotification[] = [
-  {
-    id: 'notif-1',
-    title: 'Precision Macro Engine Update v2.4.1',
-    message: 'Upgraded calculation models for thermic effect of high-protein feeding schedules.',
-    targetGroup: 'All Premium Users',
-    sentAt: '2026-05-25 14:32',
-  },
-  {
-    id: 'notif-2',
-    title: 'Peloton / Garmin Biometrics Sync Restored',
-    message: 'Resolved high-frequency heartbeat ingest failures on older fenix series firmware.',
-    targetGroup: 'Garmin Connected Athletes',
-    sentAt: '2026-05-24 09:12',
   }
 ];
 

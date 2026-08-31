@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
+import { apiClient } from '../apiClient';
 import { ArrowLeft, Lock, Loader2 } from 'lucide-react';
 
 interface LoginProps {
@@ -17,21 +17,17 @@ export function Login({ onBack, onSuccess }: LoginProps) {
     e.preventDefault();
     setIsLoading(true);
     setError(null);
-    
-    // First clear any existing sessions securely
-    await supabase.auth.signOut();
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setError(error.message);
-      setIsLoading(false);
-    } else {
+    // POST /auth/login always overwrites the session cookies with a fresh
+    // session regardless of what was there before — no separate sign-out
+    // step needed first.
+    try {
+      await apiClient.post('/auth/login', { email, password });
       setIsLoading(false);
       onSuccess();
+    } catch (err: any) {
+      setError(err.message || 'Login failed');
+      setIsLoading(false);
     }
   };
 

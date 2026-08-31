@@ -28,11 +28,14 @@ import {
   FileJson,
   UploadCloud
 } from 'lucide-react';
-import { UserAccount, MetricCard, SystemNotification, SystemSettings } from '../types';
-import { INITIAL_NOTIFICATIONS, DEFAULT_SETTINGS } from '../data';
+import { UserAccount, SystemSettings } from '../types';
+import { DEFAULT_SETTINGS } from '../data';
 import { ProgramUploader } from './ProgramUploader';
+import { ProgramLibraryPanel } from './ProgramLibraryPanel';
+import { TrainersPanel } from './TrainersPanel';
+import { ExerciseLibraryPanel } from './ExerciseLibraryPanel';
 import { useAdminAuth } from '../hooks/useAdminAuth';
-import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts, getUserWorkouts, deleteWorkout, updateWorkout, deleteWorkoutSet } from '../adminService';
+import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, getConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts, getUserWorkouts, deleteWorkout, updateWorkout, deleteWorkoutSet } from '../adminService';
 
 interface AdminDashboardProps {
   onBackToLanding: () => void;
@@ -49,7 +52,6 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
   const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
   const [usersPage, setUsersPage] = useState<number>(0);
 
-  const [notifications, setNotifications] = useState<SystemNotification[]>(INITIAL_NOTIFICATIONS);
   const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
@@ -72,15 +74,17 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
   const loadDashboardData = async () => {
     setIsLoadingData(true);
     try {
-      const [metrics, usersData, blastsData] = await Promise.all([
+      const [metrics, usersData, blastsData, configData] = await Promise.all([
         getAdminMetrics(),
         getUsers(usersPage, 10),
-        getNotificationBlasts().catch(() => []) // fail gracefully if table doesn't exist yet
+        getNotificationBlasts().catch(() => []), // fail gracefully if table doesn't exist yet
+        getConfig().catch(() => ({})) // fail gracefully, fall back to defaults below
       ]);
       setDashboardMetrics(metrics);
       setUsers(usersData.users);
       setTotalUsers(usersData.total);
       setPastBlasts(blastsData);
+      setSettings({ ...DEFAULT_SETTINGS, ...configData });
     } catch (err) {
       console.error('Failed to load admin data:', err);
       showToast('Error loading dashboard data');
@@ -90,7 +94,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
   };
 
   // Router Sidebar Tab Active ID
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'programs' | 'operations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'trainers' | 'exercises' | 'programs' | 'operations'>('overview');
 
   // Search User Query
   const [searchUserQuery, setSearchUserQuery] = useState<string>('');
@@ -298,12 +302,6 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
     }
   };
 
-  // Delete notification from list
-  const handleDeleteNotif = (notifId: string) => {
-    setNotifications((prev: any[]) => prev.filter((n: { id: string; }) => n.id !== notifId));
-    showToast('Telemetry bulletin notification cleared from active queue.');
-  };
-
   // Trigger simulated synchronization
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const triggerSync = () => {
@@ -425,6 +423,36 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
             </button>
 
             <button
+              onClick={() => setActiveTab('trainers')}
+              className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
+                activeTab === 'trainers'
+                  ? 'bg-[#141414] border border-[#252525] text-[#CCFF00]'
+                  : 'text-[#9A9A9A] hover:text-white bg-transparent border border-transparent'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <ShieldAlert className="w-4 h-4" />
+                <span>Trainer Governance</span>
+              </div>
+              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_5</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('exercises')}
+              className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
+                activeTab === 'exercises'
+                  ? 'bg-[#141414] border border-[#252525] text-[#CCFF00]'
+                  : 'text-[#9A9A9A] hover:text-white bg-transparent border border-transparent'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Database className="w-4 h-4" />
+                <span>Exercise Library</span>
+              </div>
+              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_6</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('programs')}
               className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
                 activeTab === 'programs' 
@@ -504,14 +532,26 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
               >
                 Overview
               </button>
-              <button 
-                onClick={() => setActiveTab('users')} 
+              <button
+                onClick={() => setActiveTab('users')}
                 className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'users' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
               >
                 Athletes
               </button>
-              <button 
-                onClick={() => setActiveTab('programs')} 
+              <button
+                onClick={() => setActiveTab('trainers')}
+                className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'trainers' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
+              >
+                Trainers
+              </button>
+              <button
+                onClick={() => setActiveTab('exercises')}
+                className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'exercises' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
+              >
+                Exercises
+              </button>
+              <button
+                onClick={() => setActiveTab('programs')}
                 className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'programs' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
               >
                 Programs
@@ -635,6 +675,34 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                     </p>
                   </div>
 
+                </div>
+
+                {/* Governance Snapshot */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-4">
+                    <span className="text-[10px] font-mono text-[#9A9A9A] uppercase tracking-wider block">Pending Trainer Apps</span>
+                    <span className="text-xl font-display font-bold text-white block mt-1">
+                      {isLoadingData ? '—' : dashboardMetrics?.pendingTrainerApplications ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-4">
+                    <span className="text-[10px] font-mono text-[#9A9A9A] uppercase tracking-wider block">Active Trainer Relationships</span>
+                    <span className="text-xl font-display font-bold text-white block mt-1">
+                      {isLoadingData ? '—' : dashboardMetrics?.activeTrainerRelationships ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-4">
+                    <span className="text-[10px] font-mono text-[#9A9A9A] uppercase tracking-wider block">Library Programs</span>
+                    <span className="text-xl font-display font-bold text-white block mt-1">
+                      {isLoadingData ? '—' : dashboardMetrics?.libraryProgramsCount ?? 0}
+                    </span>
+                  </div>
+                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-4">
+                    <span className="text-[10px] font-mono text-[#9A9A9A] uppercase tracking-wider block">Pending Blasts</span>
+                    <span className="text-xl font-display font-bold text-white block mt-1">
+                      {isLoadingData ? '—' : dashboardMetrics?.pendingNotificationBlasts ?? 0}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Performance Chart & Metric Diagnostics Section */}
@@ -764,26 +832,26 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {notifications.map((notif: { id: string; targetGroup: any; sentAt: any; title: any; message: any; }) => (
-                      <div key={notif.id} className="bg-[#0D0D0D] border border-[#252525] rounded-lg p-4 flex gap-4 justify-between items-start group">
-                        <div className="space-y-1.5 flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[9px] font-mono text-[#CCFF00] bg-[#CCFF00]/10 px-1.5 py-0.5 rounded uppercase">
-                              {notif.targetGroup}
-                            </span>
-                            <span className="text-[9px] font-mono text-zinc-500">{notif.sentAt}</span>
+                    {pastBlasts.length === 0 ? (
+                      <p className="text-zinc-500 text-xs font-mono col-span-2 py-4 text-center">
+                        No bulletins deployed yet.
+                      </p>
+                    ) : (
+                      pastBlasts.map((blast: { id: string; target_tier: string; created_at: string; title: string; body: string; }) => (
+                        <div key={blast.id} className="bg-[#0D0D0D] border border-[#252525] rounded-lg p-4 flex gap-4 justify-between items-start group">
+                          <div className="space-y-1.5 flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-mono text-[#CCFF00] bg-[#CCFF00]/10 px-1.5 py-0.5 rounded uppercase">
+                                {blast.target_tier}
+                              </span>
+                              <span className="text-[9px] font-mono text-zinc-500">{new Date(blast.created_at).toLocaleString()}</span>
+                            </div>
+                            <h4 className="text-xs font-bold text-white truncate">{blast.title}</h4>
+                            <p className="text-[11px] text-zinc-400 leading-relaxed">{blast.body}</p>
                           </div>
-                          <h4 className="text-xs font-bold text-white truncate">{notif.title}</h4>
-                          <p className="text-[11px] text-zinc-400 leading-relaxed">{notif.message}</p>
                         </div>
-                        <button 
-                          onClick={() => handleDeleteNotif(notif.id)}
-                          className="p-1 rounded hover:bg-red-500/10 text-zinc-500 hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ))}
+                      ))
+                    )}
                   </div>
 
                 </div>
@@ -1035,76 +1103,17 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                         </p>
 
                         <form onSubmit={handleSaveUser} className="space-y-4 text-xs font-mono">
-                          
-                          <div>
-                            <label className="text-[#9A9A9A] tracking-wider block mb-1">Full Athletic Title Name</label>
-                            <input 
-                              type="text" 
-                              required
-                              value={editingUser.name} 
-                              onChange={(e: { target: { value: any; }; }) => setEditingUser({ ...editingUser, name: e.target.value })}
-                              className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                            />
-                          </div>
 
                           <div>
-                            <label className="text-[#9A9A9A] tracking-wider block mb-1">Email Coordinates Address</label>
-                            <input 
-                              type="email" 
-                              required
-                              value={editingUser.email} 
-                              onChange={(e: { target: { value: any; }; }) => setEditingUser({ ...editingUser, email: e.target.value })}
+                            <label className="text-[#9A9A9A] tracking-wider block mb-1">Subscription Tier</label>
+                            <select
+                              value={editingUser.subscription_tier || 'free'}
+                              onChange={(e: { target: { value: string; }; }) => setEditingUser({ ...editingUser, subscription_tier: e.target.value as 'free' | 'premium' })}
                               className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-[#9A9A9A] tracking-wider block mb-1">Current Fuel Budget</label>
-                              <input 
-                                type="text" 
-                                required
-                                value={editingUser.caloriesBudget} 
-                                onChange={(e: { target: { value: any; }; }) => setEditingUser({ ...editingUser, caloriesBudget: e.target.value })}
-                                className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[#9A9A9A] tracking-wider block mb-1">Subscription Tier</label>
-                              <select 
-                                value={editingUser.subscription_tier || 'free'} 
-                                onChange={(e: { target: { value: string; }; }) => setEditingUser({ ...editingUser, subscription_tier: e.target.value as 'free' | 'premium' })}
-                                className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                              >
-                                <option value="free">Free</option>
-                                <option value="premium">Premium</option>
-                              </select>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="text-[#9A9A9A] tracking-wider block mb-1">Session Duration (mins)</label>
-                              <input 
-                                type="number" 
-                                required
-                                value={editingUser.durationMins} 
-                                onChange={(e: { target: { value: string; }; }) => setEditingUser({ ...editingUser, durationMins: parseInt(e.target.value) || 0 })}
-                                className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[#9A9A9A] tracking-wider block mb-1">System Status</label>
-                              <select 
-                                value={editingUser.status} 
-                                onChange={(e: { target: { value: any; }; }) => setEditingUser({ ...editingUser, status: e.target.value as any })}
-                                className="w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-3 rounded-lg text-white outline-none"
-                              >
-                                <option value="active">Active</option>
-                                <option value="inactive">Inactive</option>
-                                <option value="banned">Banned</option>
-                              </select>
-                            </div>
+                            >
+                              <option value="free">Free</option>
+                              <option value="premium">Premium</option>
+                            </select>
                           </div>
 
                           <div className="pt-4 flex gap-3">
@@ -1302,6 +1311,34 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
               </motion.div>
             )}
 
+            {/* TAB: TRAINER GOVERNANCE */}
+            {activeTab === 'trainers' && (
+              <motion.div
+                key="trainers"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="w-full"
+              >
+                <TrainersPanel showToast={showToast} />
+              </motion.div>
+            )}
+
+            {/* TAB: EXERCISE LIBRARY */}
+            {activeTab === 'exercises' && (
+              <motion.div
+                key="exercises"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="w-full"
+              >
+                <ExerciseLibraryPanel showToast={showToast} />
+              </motion.div>
+            )}
+
             {/* TAB 3: PROGRAMS CONTENT COMPONENT */}
             {activeTab === 'programs' && (
               <motion.div
@@ -1310,8 +1347,9 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -15 }}
                 transition={{ duration: 0.2 }}
-                className="w-full"
+                className="w-full space-y-8"
               >
+                <ProgramLibraryPanel showToast={showToast} />
                 <ProgramUploader showToast={showToast} />
               </motion.div>
             )}
@@ -1539,7 +1577,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                   </div>
 
                   {/* Past Blasts Grid */}
-                  {/* <div className="bg-[#141414] border border-[#252525] rounded-xl p-6 sm:p-8 space-y-6">
+                  <div className="bg-[#141414] border border-[#252525] rounded-xl p-6 sm:p-8 space-y-6">
                     <div className="border-b border-zinc-900 pb-4 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Database className="w-5 h-5 text-[#CCFF00]" />
@@ -1586,7 +1624,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
                         </tbody>
                       </table>
                     </div>
-                  </div> */}
+                  </div>
 
                   {/* System statistics tracker mockup widget */}
                   <div className="bg-[#141414] border border-[#252525] rounded-xl p-5 font-mono text-[10px] space-y-3">
