@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiClient, API_BASE_URL } from './apiClient';
 import { UserAccount } from './types';
 
 export interface AdminMetrics {
@@ -265,4 +265,503 @@ export async function toggleFeatureProgram(programId: string): Promise<{ is_feat
 // real incremental steps left to report.
 export async function uploadProgramMigration(programData: any): Promise<void> {
   await apiClient.post('/admin/programs/upload', programData);
+}
+
+// =====================================================================
+// GYMS — GYM_MODULE_SPEC.md §11
+// =====================================================================
+export interface AdminGym {
+  id: string;
+  owner_user_id: string | null;
+  name: string;
+  description: string | null;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  city: string | null;
+  phone: string | null;
+  tier: 'free' | 'paid';
+  status: 'pending_review' | 'live' | 'rejected' | 'suspended';
+  source: 'admin_added' | 'self_signup';
+  photo_url: string | null;
+  walkthrough_video_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminGymCreatePayload {
+  name: string;
+  description?: string | null;
+  address: string;
+  lat?: number | null;
+  lng?: number | null;
+  city?: string | null;
+  phone?: string | null;
+  owner_user_id?: string | null;
+  walkthrough_video_url?: string | null;
+}
+
+export interface AdminGymUpdatePayload {
+  name?: string;
+  description?: string | null;
+  address?: string;
+  lat?: number | null;
+  lng?: number | null;
+  city?: string | null;
+  phone?: string | null;
+  walkthrough_video_url?: string | null;
+}
+
+export async function listGymsAdmin(filters: { status?: string; tier?: string; source?: string } = {}): Promise<AdminGym[]> {
+  const params = new URLSearchParams();
+  if (filters.status) params.set('status', filters.status);
+  if (filters.tier) params.set('tier', filters.tier);
+  if (filters.source) params.set('source', filters.source);
+  const qs = params.toString();
+  return apiClient.get(`/admin/gyms${qs ? `?${qs}` : ''}`);
+}
+
+export async function createGymAdmin(payload: AdminGymCreatePayload): Promise<AdminGym> {
+  return apiClient.post('/admin/gyms', payload);
+}
+
+export async function getGymAdmin(gymId: string): Promise<AdminGym> {
+  return apiClient.get(`/admin/gyms/${gymId}`);
+}
+
+export async function updateGymAdmin(gymId: string, payload: AdminGymUpdatePayload): Promise<AdminGym> {
+  return apiClient.patch(`/admin/gyms/${gymId}`, payload);
+}
+
+export async function approveGym(gymId: string): Promise<AdminGym> {
+  return apiClient.post(`/admin/gyms/${gymId}/approve`);
+}
+
+export async function rejectGym(gymId: string): Promise<AdminGym> {
+  return apiClient.post(`/admin/gyms/${gymId}/reject`);
+}
+
+export async function suspendGym(gymId: string): Promise<AdminGym> {
+  return apiClient.post(`/admin/gyms/${gymId}/suspend`);
+}
+
+export async function toggleGymTier(gymId: string): Promise<AdminGym> {
+  return apiClient.patch(`/admin/gyms/${gymId}/tier`);
+}
+
+// --- Gym gallery (spec §12a) — Cloudinary hosts the file, we only store the URL/id ---
+export interface GymGalleryPhoto {
+  id: string;
+  gym_id: string;
+  image_url: string;
+  cloudinary_public_id: string;
+  position: number;
+  created_at: string;
+}
+
+export async function listGymGallery(gymId: string): Promise<GymGalleryPhoto[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/gallery`);
+}
+
+export async function addGymGalleryPhoto(
+  gymId: string,
+  payload: { image_url: string; cloudinary_public_id: string }
+): Promise<GymGalleryPhoto> {
+  return apiClient.post(`/admin/gyms/${gymId}/gallery`, payload);
+}
+
+export async function deleteGymGalleryPhoto(gymId: string, photoId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/gallery/${photoId}`);
+}
+
+// Multipart upload — bypasses apiClient (which always sends JSON) since this
+// needs a browser-set multipart/form-data boundary. Two-call flow per
+// GYM_MODULE_SPEC.md §11: create the gym first, then upload its photo against
+// the returned id. Re-uploading on an existing gym replaces the photo (same
+// endpoint, no separate "update photo" route).
+export async function uploadGymPhoto(gymId: string, file: File): Promise<{ url: string; path: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/admin/gyms/${gymId}/photo`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Gym admins (gym_admins junction — super-admin only to add/remove) ---
+export interface GymAdminRow {
+  id: string;
+  gym_id: string;
+  user_id: string;
+  role: 'owner' | 'staff';
+  created_at: string;
+}
+
+export async function listGymAdmins(gymId: string): Promise<GymAdminRow[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/admins`);
+}
+
+export async function addGymAdmin(gymId: string, payload: { user_id: string; role?: 'owner' | 'staff' }): Promise<GymAdminRow> {
+  return apiClient.post(`/admin/gyms/${gymId}/admins`, payload);
+}
+
+export async function removeGymAdmin(gymId: string, userId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/admins/${userId}`);
+}
+
+// --- Equipment / amenity catalog (shared/reusable across gyms — spec §5) ---
+export interface EquipmentCategory {
+  id: string;
+  name: string;
+}
+
+export interface EquipmentModel {
+  id: string;
+  category_id: string;
+  category_name: string;
+  brand: string;
+  model_name: string;
+  photo_url: string | null;
+}
+
+export interface AmenityIcon {
+  id: string;
+  name: string;
+  image_url: string | null;
+}
+
+export interface Amenity {
+  id: string;
+  name: string;
+  icon: AmenityIcon | null;
+}
+
+export async function listEquipmentCategories(search?: string): Promise<EquipmentCategory[]> {
+  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiClient.get(`/admin/equipment-categories${qs}`);
+}
+
+export async function createEquipmentCategory(name: string): Promise<EquipmentCategory> {
+  return apiClient.post('/admin/equipment-categories', { name });
+}
+
+export async function listEquipmentModels(search?: string, categoryId?: string): Promise<EquipmentModel[]> {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (categoryId) params.set('category_id', categoryId);
+  const qs = params.toString();
+  return apiClient.get(`/admin/equipment-models${qs ? `?${qs}` : ''}`);
+}
+
+export async function createEquipmentModel(payload: {
+  category_id: string;
+  brand: string;
+  model_name: string;
+  photo_url?: string | null;
+}): Promise<EquipmentModel> {
+  return apiClient.post('/admin/equipment-models', payload);
+}
+
+export async function listAmenityCatalog(search?: string): Promise<Amenity[]> {
+  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiClient.get(`/admin/amenities${qs}`);
+}
+
+export async function createAmenityCatalog(name: string, iconId?: string | null): Promise<Amenity> {
+  return apiClient.post('/admin/amenities', { name, icon_id: iconId || undefined });
+}
+
+export async function updateAmenityCatalog(
+  amenityId: string,
+  payload: { name?: string; icon_id?: string | null }
+): Promise<Amenity> {
+  return apiClient.patch(`/admin/amenities/${amenityId}`, payload);
+}
+
+// --- Amenity icon library (not gym-scoped, shared across all amenities) ---
+export async function listAmenityIcons(): Promise<AmenityIcon[]> {
+  return apiClient.get('/admin/amenity-icons');
+}
+
+export async function createAmenityIcon(name: string): Promise<AmenityIcon> {
+  return apiClient.post('/admin/amenity-icons', { name });
+}
+
+// Multipart upload — same create-then-upload shape as uploadGymPhoto above.
+// Re-uploading on an existing icon replaces its image.
+export async function uploadAmenityIconPhoto(iconId: string, file: File): Promise<{ url: string; path: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE_URL}/admin/amenity-icons/${iconId}/photo`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: formData,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// --- Gym-scoped equipment / amenities ---
+export interface GymEquipment {
+  id: string;
+  gym_id: string;
+  quantity: number | null;
+  photo_url: string | null;
+  equipment_model: EquipmentModel;
+}
+
+export interface GymAmenity {
+  id: string;
+  gym_id: string;
+  amenity: Amenity;
+}
+
+export async function listGymEquipment(gymId: string): Promise<GymEquipment[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/equipment`);
+}
+
+export async function attachGymEquipment(
+  gymId: string,
+  payload: { equipment_model_id: string; quantity?: number | null; photo_url?: string | null }
+): Promise<GymEquipment> {
+  return apiClient.post(`/admin/gyms/${gymId}/equipment`, payload);
+}
+
+export async function updateGymEquipment(
+  gymId: string,
+  gymEquipmentId: string,
+  payload: { quantity?: number | null; photo_url?: string | null }
+): Promise<GymEquipment> {
+  return apiClient.patch(`/admin/gyms/${gymId}/equipment/${gymEquipmentId}`, payload);
+}
+
+export async function detachGymEquipment(gymId: string, gymEquipmentId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/equipment/${gymEquipmentId}`);
+}
+
+export async function listGymAmenities(gymId: string): Promise<GymAmenity[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/amenities`);
+}
+
+export async function attachGymAmenity(gymId: string, amenityId: string): Promise<GymAmenity> {
+  return apiClient.post(`/admin/gyms/${gymId}/amenities`, { amenity_id: amenityId });
+}
+
+export async function detachGymAmenity(gymId: string, gymAmenityId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/amenities/${gymAmenityId}`);
+}
+
+// --- Gym trainer affiliation (spec §8) ---
+export interface GymTrainerAffiliation {
+  id: string;
+  gym_id: string;
+  status: 'active' | 'inactive';
+  affiliated_at: string;
+  trainer: {
+    id: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    bio: string | null;
+    specialties: string[];
+    is_verified: boolean;
+    headline: string | null;
+    years_experience: number | null;
+  };
+}
+
+export async function listGymTrainers(gymId: string, status: string = 'active'): Promise<GymTrainerAffiliation[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/trainers?status=${encodeURIComponent(status)}`);
+}
+
+export async function affiliateGymTrainer(gymId: string, trainerId: string): Promise<GymTrainerAffiliation> {
+  return apiClient.post(`/admin/gyms/${gymId}/trainers`, { trainer_id: trainerId });
+}
+
+export async function setGymTrainerStatus(
+  gymId: string,
+  gymTrainerId: string,
+  status: 'active' | 'inactive'
+): Promise<GymTrainerAffiliation> {
+  return apiClient.patch(`/admin/gyms/${gymId}/trainers/${gymTrainerId}`, { status });
+}
+
+// --- Gym plans (spec §7 — separate table set from programs, same tree shape) ---
+export interface GymPlanSubstitutionIn {
+  name: string;
+  tutorial_url?: string | null;
+  tracking_type?: string;
+  is_unilateral?: boolean;
+  muscle_group?: string | null;
+}
+
+export interface GymPlanPrescription {
+  id?: string;
+  exercise_name: string;
+  tutorial_url?: string | null;
+  tracking_type?: string;
+  is_unilateral?: boolean;
+  muscle_group?: string | null;
+  sequence_order?: number | null;
+  warm_up_sets?: number | string | null;
+  working_sets?: number | string | null;
+  target_reps?: string | null;
+  target_reps_left?: string | null;
+  target_reps_right?: string | null;
+  early_set_rpe?: number | null;
+  last_set_rpe?: number | null;
+  rest_time?: string | null;
+  intensity_technique?: string | null;
+  prescription_notes?: string | null;
+  substitutions?: GymPlanSubstitutionIn[];
+}
+
+export interface GymPlanSession {
+  id?: string;
+  session_number: number;
+  session_label?: string | null;
+  prescriptions: GymPlanPrescription[];
+}
+
+export interface GymPlanWeek {
+  id?: string;
+  week_number: number;
+  block_number?: number | null;
+  block_label?: string | null;
+  is_deload?: boolean;
+  sessions: GymPlanSession[];
+}
+
+export interface GymPlan {
+  id: string;
+  gym_id: string;
+  created_by_user_id: string | null;
+  type: 'general' | 'user_specific';
+  title: string;
+  description: string | null;
+  total_weeks: number | null;
+  weeks: GymPlanWeek[];
+}
+
+export interface GymPlanCreatePayload {
+  type: 'general' | 'user_specific';
+  title: string;
+  description?: string | null;
+  total_weeks?: number | null;
+  weeks: GymPlanWeek[];
+}
+
+export interface GymPlanUpdatePayload {
+  title: string;
+  description?: string | null;
+  total_weeks?: number | null;
+  weeks: GymPlanWeek[];
+}
+
+export interface GymPlanAssignment {
+  id: string;
+  gym_plan_id: string;
+  user_id: string;
+  assigned_by_user_id: string | null;
+  assigned_at: string;
+}
+
+export interface GymPlanExerciseOption {
+  id: string;
+  name: string;
+  tutorial_url: string | null;
+  tracking_type: string;
+  is_unilateral: boolean;
+  muscle_group: string | null;
+  equipment_model_id: string | null;
+}
+
+export async function listGymPlans(gymId: string): Promise<GymPlan[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/plans`);
+}
+
+export async function createGymPlan(gymId: string, payload: GymPlanCreatePayload): Promise<GymPlan> {
+  return apiClient.post(`/admin/gyms/${gymId}/plans`, payload);
+}
+
+export async function updateGymPlan(gymId: string, planId: string, payload: GymPlanUpdatePayload): Promise<GymPlan> {
+  return apiClient.put(`/admin/gyms/${gymId}/plans/${planId}`, payload);
+}
+
+export async function deleteGymPlan(gymId: string, planId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/plans/${planId}`);
+}
+
+export async function listGymPlanAssignments(gymId: string, planId: string): Promise<GymPlanAssignment[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/plans/${planId}/assignments`);
+}
+
+export async function assignGymPlan(gymId: string, planId: string, userId: string): Promise<GymPlanAssignment> {
+  return apiClient.post(`/admin/gyms/${gymId}/plans/${planId}/assignments`, { user_id: userId });
+}
+
+export async function unassignGymPlan(gymId: string, planId: string, assignmentId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/plans/${planId}/assignments/${assignmentId}`);
+}
+
+export async function listGymPlanExercises(gymId: string, search?: string): Promise<GymPlanExerciseOption[]> {
+  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
+  return apiClient.get(`/admin/gyms/${gymId}/plan-exercises${qs}`);
+}
+
+// =====================================================================
+// EQUIPMENT TYPES — EQUIPMENT_TYPES_MODULE_SPEC.md
+// Fixed/seeded reference list (plates/dumbbells/accessories) — distinct from
+// the brand/model equipment_categories/equipment_models/gym_equipment catalog
+// above. No admin CRUD on the catalog itself in v1, just attach/detach per gym.
+// =====================================================================
+export type EquipmentTypeCategory = 'plates' | 'dumbbells' | 'accessories';
+
+export interface EquipmentType {
+  id: string;
+  category: EquipmentTypeCategory;
+  name: string;
+  image_url: string;
+}
+
+export interface EquipmentTypesByCategory {
+  plates: EquipmentType[];
+  dumbbells: EquipmentType[];
+  accessories: EquipmentType[];
+}
+
+export interface GymEquipmentType {
+  id: string; // gym_equipment_types row id — pass this to the detach call, not equipment_type.id
+  gym_id: string;
+  equipment_type: EquipmentType;
+}
+
+export async function listEquipmentTypesCatalog(): Promise<EquipmentTypesByCategory> {
+  return apiClient.get('/admin/equipment-types');
+}
+
+export async function listGymEquipmentTypes(gymId: string): Promise<GymEquipmentType[]> {
+  return apiClient.get(`/admin/gyms/${gymId}/equipment-types`);
+}
+
+export async function attachGymEquipmentType(gymId: string, equipmentTypeId: string): Promise<GymEquipmentType> {
+  return apiClient.post(`/admin/gyms/${gymId}/equipment-types`, { equipment_type_id: equipmentTypeId });
+}
+
+export async function detachGymEquipmentType(gymId: string, gymEquipmentTypeId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/equipment-types/${gymEquipmentTypeId}`);
 }

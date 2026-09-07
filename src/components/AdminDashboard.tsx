@@ -26,7 +26,8 @@ import {
   X,
   Database,
   FileJson,
-  UploadCloud
+  UploadCloud,
+  Building2
 } from 'lucide-react';
 import { UserAccount, SystemSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../data';
@@ -34,6 +35,7 @@ import { ProgramUploader } from './ProgramUploader';
 import { ProgramLibraryPanel } from './ProgramLibraryPanel';
 import { TrainersPanel } from './TrainersPanel';
 import { ExerciseLibraryPanel } from './ExerciseLibraryPanel';
+import { GymsPanel } from './GymsPanel';
 import { useAdminAuth } from '../hooks/useAdminAuth';
 import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, getConfig, updateUserSubscription, sendNotificationBlast, getNotificationBlasts, getUserWorkouts, deleteWorkout, updateWorkout, deleteWorkoutSet } from '../adminService';
 
@@ -94,7 +96,7 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
   };
 
   // Router Sidebar Tab Active ID
-  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'trainers' | 'exercises' | 'programs' | 'operations'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'trainers' | 'exercises' | 'programs' | 'gyms' | 'operations'>('overview');
 
   // Search User Query
   const [searchUserQuery, setSearchUserQuery] = useState<string>('');
@@ -468,6 +470,21 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
             </button>
 
             <button
+              onClick={() => setActiveTab('gyms')}
+              className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
+                activeTab === 'gyms'
+                  ? 'bg-[#141414] border border-[#252525] text-[#CCFF00]'
+                  : 'text-[#9A9A9A] hover:text-white bg-transparent border border-transparent'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Building2 className="w-4 h-4" />
+                <span>Gyms</span>
+              </div>
+              <span className="text-[9px] bg-[#222]/50 px-1.5 py-0.5 rounded text-zinc-500">TAB_7</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('operations')}
               className={`w-full text-left py-2.5 px-4 rounded-lg font-mono text-xs font-medium tracking-wide flex items-center justify-between transition-all ${
                 activeTab === 'operations' 
@@ -556,8 +573,14 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
               >
                 Programs
               </button>
-              <button 
-                onClick={() => setActiveTab('operations')} 
+              <button
+                onClick={() => setActiveTab('gyms')}
+                className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'gyms' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
+              >
+                Gyms
+              </button>
+              <button
+                onClick={() => setActiveTab('operations')}
                 className={`px-2.5 py-1 text-[10px] font-mono font-bold rounded ${activeTab === 'operations' ? 'bg-[#CCFF00] text-black' : 'text-[#9A9A9A]'}`}
               >
                 Settings
@@ -1351,6 +1374,20 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
               >
                 <ProgramLibraryPanel showToast={showToast} />
                 <ProgramUploader showToast={showToast} />
+              </motion.div>
+            )}
+
+            {/* TAB 7: GYMS COMPONENT */}
+            {activeTab === 'gyms' && (
+              <motion.div
+                key="gyms"
+                initial={{ opacity: 0, y: 15 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -15 }}
+                transition={{ duration: 0.2 }}
+                className="w-full"
+              >
+                <GymsPanel showToast={showToast} />
               </motion.div>
             )}
 
