@@ -42,7 +42,7 @@ const MEMBERS_PAGE_SIZE = 50;
 
 type ShowToast = (msg: string) => void;
 
-const formatCodeForDisplay = (code: string) => (code.length === 8 ? `${code.slice(0, 4)} ${code.slice(4)}` : code);
+export const formatCodeForDisplay = (code: string) => (code.length === 8 ? `${code.slice(0, 4)} ${code.slice(4)}` : code);
 
 function errorMessage(err: unknown, fallback: string): string {
   if (isApiError(err, 403)) return FORBIDDEN_MESSAGE;
@@ -218,7 +218,7 @@ const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 // Printable poster in its own window so the dashboard chrome never prints.
-function openJoinCodePoster(gymName: string, code: string): boolean {
+export function openJoinCodePoster(gymName: string, code: string): boolean {
   const w = window.open('', '_blank', 'width=720,height=960');
   if (!w) return false;
   w.document.write(`<!doctype html>
@@ -252,7 +252,7 @@ function openJoinCodePoster(gymName: string, code: string): boolean {
   return true;
 }
 
-async function copyToClipboard(text: string): Promise<boolean> {
+export async function copyToClipboard(text: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -591,6 +591,7 @@ function JoinCodeCard({
             </span>
             <span className="text-zinc-500">
               Members <span className="text-zinc-300">{joinCode.member_count}</span>
+              <span className="text-zinc-600"> ({joinCode.code_member_count} via code)</span>
             </span>
           </div>
 

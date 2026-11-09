@@ -3,8 +3,9 @@ import { MarketingLandingPage } from './components/MarketingLandingPage';
 import { AdminDashboard } from './components/AdminDashboard';
 import { Login } from './components/Login';
 import PrivacyPolicyPage from './components/PrivacyPolicyPage';
+import { GymManagerPage } from './components/GymManagerPage';
 
-type ViewState = 'landing' | 'admin' | 'login' | 'privacy';
+type ViewState = 'landing' | 'admin' | 'login' | 'privacy' | 'gym';
 
 export default function App() {
   const [currentView, setCurrentView] = useState<ViewState>('landing');
@@ -16,6 +17,7 @@ export default function App() {
       if (path === '/admin') setCurrentView('admin');
       else if (path === '/login') setCurrentView('login');
       else if (path === '/privacy') setCurrentView('privacy');
+      else if (path === '/gym') setCurrentView('gym');
       else setCurrentView('landing');
     };
 
@@ -41,13 +43,20 @@ export default function App() {
       {currentView === 'login' && (
         <Login 
           onBack={() => navigateTo('landing')} 
-          onSuccess={() => navigateTo('admin')} 
+          onSuccess={(role) => navigateTo(role === 'admin' ? 'admin' : 'gym')}
         />
       )}
       {currentView === 'admin' && (
         <AdminDashboard 
           onBackToLanding={() => navigateTo('landing')} 
           onNavigateToLogin={() => navigateTo('login')}
+          onNavigateToGym={() => navigateTo('gym')}
+        />
+      )}
+      {currentView === 'gym' && (
+        <GymManagerPage
+          onNavigateToLogin={() => navigateTo('login')}
+          onNavigateToAdmin={() => navigateTo('admin')}
         />
       )}
       {currentView === 'privacy' && (

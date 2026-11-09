@@ -4,7 +4,8 @@ import { ArrowLeft, Lock, Loader2 } from 'lucide-react';
 
 interface LoginProps {
   onBack: () => void;
-  onSuccess: () => void;
+  // role from POST /auth/login: 'admin' = super admin; anything else is a gym manager
+  onSuccess: (role: string) => void;
 }
 
 export function Login({ onBack, onSuccess }: LoginProps) {
@@ -22,9 +23,9 @@ export function Login({ onBack, onSuccess }: LoginProps) {
     // session regardless of what was there before — no separate sign-out
     // step needed first.
     try {
-      await apiClient.post('/auth/login', { email, password });
+      const me = await apiClient.post<{ user_id: string; role: string }>('/auth/login', { email, password });
       setIsLoading(false);
-      onSuccess();
+      onSuccess(me.role);
     } catch (err: any) {
       setError(err.message || 'Login failed');
       setIsLoading(false);

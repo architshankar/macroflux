@@ -42,10 +42,11 @@ import { getAdminMetrics, getUsers, toggleSuspendUser, updateSystemConfig, getCo
 interface AdminDashboardProps {
   onBackToLanding: () => void;
   onNavigateToLogin?: () => void; // Support for redirecting
+  onNavigateToGym?: () => void; // signed-in gym managers (non-super-admin) belong on /gym
 }
 
-export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDashboardProps) {
-  const { isAdmin, isLoading: isAuthLoading } = useAdminAuth();
+export function AdminDashboard({ onBackToLanding, onNavigateToLogin, onNavigateToGym }: AdminDashboardProps) {
+  const { userId, isAdmin, isLoading: isAuthLoading } = useAdminAuth();
 
   // Load State
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -58,14 +59,16 @@ export function AdminDashboard({ onBackToLanding, onNavigateToLogin }: AdminDash
 
   useEffect(() => {
     if (!isAuthLoading && !isAdmin) {
-      if (onNavigateToLogin) {
+      if (userId && onNavigateToGym) {
+        onNavigateToGym();
+      } else if (onNavigateToLogin) {
         onNavigateToLogin();
       } else {
         // Fallback simple redirect if not provided via props
         window.location.href = '/login';
       }
     }
-  }, [isAuthLoading, isAdmin, onNavigateToLogin]);
+  }, [isAuthLoading, isAdmin, userId, onNavigateToLogin, onNavigateToGym]);
 
   useEffect(() => {
     if (isAdmin) {

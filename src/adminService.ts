@@ -735,7 +735,8 @@ export interface GymJoinCode {
   code: string | null; // null until the first regenerate
   enabled: boolean;
   updated_at: string | null;
-  member_count: number;
+  member_count: number; // all members (code + admin-added)
+  code_member_count: number; // only those who joined with the code
 }
 
 export interface GymMember {
@@ -750,6 +751,26 @@ export interface GymMember {
 export interface GymMemberList {
   items: GymMember[];
   total: number;
+}
+
+// Gyms the logged-in user manages (gym_admins rows) — gym-manager login landing.
+export interface MyAdminGym {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string;
+  photo_url: string | null;
+  tier: 'free' | 'paid';
+  status: AdminGym['status'];
+  admin_role: 'owner' | 'staff';
+}
+
+export async function listMyGyms(): Promise<MyAdminGym[]> {
+  return apiClient.get('/admin/my-gyms');
+}
+
+export async function logoutPanel(): Promise<void> {
+  await apiClient.post('/auth/logout');
 }
 
 export async function getGymJoinCode(gymId: string): Promise<GymJoinCode> {

@@ -749,3 +749,27 @@ shows a Join code column (Active / Disabled / —).
 takes just the gym and renders 403s inline, so it drops into a gym-scoped view unchanged.
 The "Add member" picker searches `getUsers(0, 100)` client-side (same limit as plan
 assignments). Not exercised against a running backend (migration 054 not yet applied).
+
+### backend — 2026-11-10 — gym-manager panel login (read-only join codes)
+
+- `POST /auth/login` now issues a panel session to super admins **and** gym admins (any
+  `gym_admins` row) — `auth_service.require_panel_access`. Every route still enforces its own
+  gate, so a gym-admin session gets 403 on super-admin routes (`require_admin_user_id`).
+- New `GET /admin/my-gyms` → `[{id, name, city, address, photo_url, tier, status,
+  admin_role}]` — the caller's `gym_admins` gyms, sorted by name (empty for anyone else).
+- `JoinCodeOut` gains `code_member_count` (memberships with `joined_via='code'`);
+  `member_count` is still all memberships.
+- Gym managers are **read-only** on join codes/memberships: regenerate, PATCH join-code,
+  POST/DELETE members now use `require_super_admin_for_gym_user_id` (404 missing gym, else 403
+  unless super admin). GET join-code / GET members / GET gym stay open to that gym's admins.
+  Other gym-scoped writes (equipment, plans, trainers, ...) are unchanged and still allow gym admins.
+- Tests: `tests/test_gym_join_codes.py` (64 passing).
+
+### admin-panel — 2026-11-10 — gym-manager login view
+
+New `/gym` route (`src/components/GymManagerPage.tsx`): read-only view for gym admins — gym
+picker when they manage several, the join code (copy / printable poster, disabled + free-tier +
+non-live notices), "Joined with the code" (`code_member_count`) and total members. Login now
+routes by the role `POST /auth/login` returns (`admin` → `/admin`, else `/gym`); a signed-in
+non-super-admin opening `/admin` is sent to `/gym`. Super-admin card shows "(N via code)".
+New service calls: `listMyGyms` (`GET /admin/my-gyms`), `logoutPanel`.
