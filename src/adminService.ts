@@ -245,10 +245,16 @@ export interface AdminProgram {
   plan_style: string | null;
   total_weeks: number;
   is_featured: boolean;
+  // false = hidden from the app catalog, day fetches and new trainer assignments (056)
+  is_enabled: boolean;
 }
 
 export async function getAdminPrograms(): Promise<{ programs: AdminProgram[]; total: number }> {
   return apiClient.get('/admin/programs?page=0&page_size=100');
+}
+
+export async function setProgramEnabled(programId: string, enabled: boolean): Promise<{ is_enabled: boolean }> {
+  return apiClient.patch(`/admin/programs/${programId}/enabled`, { enabled });
 }
 
 export async function toggleFeatureProgram(programId: string): Promise<{ is_featured: boolean }> {
