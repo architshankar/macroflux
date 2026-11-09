@@ -285,6 +285,9 @@ export interface AdminGym {
   source: 'admin_added' | 'self_signup';
   photo_url: string | null;
   walkthrough_video_url: string | null;
+  // Admin-only (AdminGymOut) — the member-facing GymOut never carries these.
+  join_code: string | null;
+  join_code_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -721,6 +724,63 @@ export async function unassignGymPlan(gymId: string, planId: string, assignmentI
 export async function listGymPlanExercises(gymId: string, search?: string): Promise<GymPlanExerciseOption[]> {
   const qs = search ? `?search=${encodeURIComponent(search)}` : '';
   return apiClient.get(`/admin/gyms/${gymId}/plan-exercises${qs}`);
+}
+
+// --- Gym join code & memberships (GYM_MODULE_SPEC.md §16, 2026-11-10 entry) ---
+// Timestamps are offset-aware ISO strings in IST (+05:30) — parse with
+// new Date(iso) (honours the offset) and format via ./dateFormat.
+export const JOIN_CODE_REQUIRES_PAID_TIER = 'join_code_requires_paid_tier';
+
+export interface GymJoinCode {
+  code: string | null; // null until the first regenerate
+  enabled: boolean;
+  updated_at: string | null;
+  member_count: number;
+}
+
+export interface GymMember {
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  joined_via: 'code' | 'admin';
+  joined_at: string;
+}
+
+export interface GymMemberList {
+  items: GymMember[];
+  total: number;
+}
+
+export async function getGymJoinCode(gymId: string): Promise<GymJoinCode> {
+  return apiClient.get(`/admin/gyms/${gymId}/join-code`);
+}
+
+// Also creates the very first code. 409 join_code_requires_paid_tier on free-tier gyms.
+export async function regenerateGymJoinCode(gymId: string): Promise<GymJoinCode> {
+  return apiClient.post(`/admin/gyms/${gymId}/join-code/regenerate`);
+}
+
+export async function setGymJoinCodeEnabled(gymId: string, enabled: boolean): Promise<GymJoinCode> {
+  return apiClient.patch(`/admin/gyms/${gymId}/join-code`, { enabled });
+}
+
+export async function listGymMembers(
+  gymId: string,
+  opts: { search?: string; limit?: number; offset?: number } = {}
+): Promise<GymMemberList> {
+  const params = new URLSearchParams({ limit: String(opts.limit ?? 50), offset: String(opts.offset ?? 0) });
+  if (opts.search) params.set('search', opts.search);
+  return apiClient.get(`/admin/gyms/${gymId}/members?${params.toString()}`);
+}
+
+// Idempotent — re-adding returns the existing row with its original joined_via/joined_at.
+export async function addGymMember(gymId: string, userId: string): Promise<GymMember> {
+  return apiClient.post(`/admin/gyms/${gymId}/members`, { user_id: userId });
+}
+
+export async function removeGymMember(gymId: string, userId: string): Promise<void> {
+  await apiClient.delete(`/admin/gyms/${gymId}/members/${userId}`);
 }
 
 // =====================================================================

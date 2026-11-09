@@ -724,3 +724,28 @@ exist yet, so gallery upload is untestable end-to-end until one is created and
 `VITE_CLOUDINARY_UPLOAD_PRESET` is filled in. `npx tsc --noEmit` and `npm run build`
 are both clean; not eyeballed in a running browser this pass.
 
+
+### admin-panel — 2026-11-10 — gym join codes + memberships UI
+
+Built against the backend's 2026-11-10 "gym join codes + gym memberships" entry (that entry
+lives in `FitnessAppBackend/GYM_MODULE_SPEC.md`; this copy of the doc never received it).
+Endpoints/shapes checked against `app/routers/admin_gyms.py` + `app/schemas/gym_memberships.py`
+— no deviations.
+
+**New**: `src/components/GymMembersTab.tsx` — "Members & Code" tab in `GymDetailPanel`:
+access-code card (generate / copy raw code / enable toggle / regenerate behind a confirm
+dialog / printable poster in a pop-up window; free-tier, non-live and zero-General-plans
+warnings; 409 `join_code_requires_paid_tier` mapped to the paid-tier message) and a
+paginated (50), debounced-search members table with add (shared `UserPicker`, also now used
+by `PlanAssignmentsModal`) and remove (404 treated as already removed). `src/dateFormat.ts`
+— `formatDate`/`formatDateTime` for the IST offset-aware timestamps.
+
+**Changed**: `src/apiClient.ts` throws `ApiError` (an `Error` subclass with `status`/`detail`,
+same `message` as before). `AdminGym` gained `join_code`/`join_code_enabled`; `GymsPanel`
+shows a Join code column (Active / Disabled / —).
+
+**Not done**: there is still no gym-scoped (gym-admin) shell — `useAdminAuth` admits only
+`role === 'admin'` — so the new tab is only reachable from the super-admin Gyms list; it
+takes just the gym and renders 403s inline, so it drops into a gym-scoped view unchanged.
+The "Add member" picker searches `getUsers(0, 100)` client-side (same limit as plan
+assignments). Not exercised against a running backend (migration 054 not yet applied).

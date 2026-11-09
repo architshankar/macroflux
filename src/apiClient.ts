@@ -1,5 +1,23 @@
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
+// Subclass of Error so every existing `catch (err) { err.message }` call site
+// keeps working unchanged; new code can additionally branch on status/detail
+// (e.g. 403 vs 404 vs 409 join_code_requires_paid_tier).
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(status: number, detail: unknown, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+export function isApiError(err: unknown, status?: number): err is ApiError {
+  return err instanceof ApiError && (status === undefined || err.status === status);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -16,7 +34,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${res.status}`);
+    const message = typeof body.detail === 'string' ? body.detail : `Request failed: ${res.status}`;
+    throw new ApiError(res.status, body.detail, message);
   }
 
   if (res.status === 204) return undefined as T;

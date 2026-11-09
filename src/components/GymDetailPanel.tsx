@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   Image as ImageIcon,
   Upload,
+  KeyRound,
 } from 'lucide-react';
 import {
   AdminGym,
@@ -81,6 +82,7 @@ import {
 } from '../adminService';
 import { UserAccount } from '../types';
 import { GymPlanEditor } from './GymPlanEditor';
+import { GymMembersTab, UserPicker } from './GymMembersTab';
 import { uploadToCloudinary, isCloudinaryConfigured } from '../cloudinaryClient';
 
 interface GymDetailPanelProps {
@@ -94,7 +96,7 @@ const th = 'px-4 py-3';
 const td = 'px-4 py-3';
 const inputCls = 'w-full bg-[#0D0D0D] border border-zinc-800 focus:border-[#CCFF00] p-2.5 rounded-lg text-white outline-none text-xs font-mono';
 
-type DetailTab = 'info' | 'equipment' | 'types' | 'amenities' | 'trainers' | 'plans' | 'admins';
+type DetailTab = 'info' | 'equipment' | 'types' | 'amenities' | 'trainers' | 'plans' | 'members' | 'admins';
 
 export function GymDetailPanel({ gym, onBack, showToast }: GymDetailPanelProps) {
   const [tab, setTab] = useState<DetailTab>('info');
@@ -107,6 +109,7 @@ export function GymDetailPanel({ gym, onBack, showToast }: GymDetailPanelProps) 
     { id: 'amenities', label: 'Amenities', icon: Sparkles },
     { id: 'trainers', label: 'Trainers', icon: Users },
     { id: 'plans', label: 'Plans', icon: ClipboardList },
+    { id: 'members', label: 'Members & Code', icon: KeyRound },
     { id: 'admins', label: 'Admins', icon: ShieldCheck },
   ];
 
@@ -161,6 +164,14 @@ export function GymDetailPanel({ gym, onBack, showToast }: GymDetailPanelProps) 
       {tab === 'amenities' && <AmenitiesTab gymId={gymState.id} showToast={showToast} />}
       {tab === 'trainers' && <TrainersTab gymId={gymState.id} showToast={showToast} />}
       {tab === 'plans' && <PlansTab gymId={gymState.id} showToast={showToast} />}
+      {tab === 'members' && (
+        <GymMembersTab
+          gym={gymState}
+          showToast={showToast}
+          onGymPatched={(patch) => setGymState((g) => ({ ...g, ...patch }))}
+          onGoToPlans={() => setTab('plans')}
+        />
+      )}
       {tab === 'admins' && <AdminsTab gymId={gymState.id} showToast={showToast} />}
     </div>
   );
@@ -1321,7 +1332,6 @@ function PlanAssignmentsModal({
 }) {
   const [assignments, setAssignments] = useState<GymPlanAssignment[]>([]);
   const [members, setMembers] = useState<UserAccount[]>([]);
-  const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
   const load = async () => {
@@ -1344,16 +1354,12 @@ function PlanAssignmentsModal({
   }, []);
 
   const assignedIds = new Set(assignments.map((a) => a.user_id));
-  const candidates = members.filter(
-    (m) => !assignedIds.has(m.id) && search && (m.name.toLowerCase().includes(search.toLowerCase()) || m.email.toLowerCase().includes(search.toLowerCase()))
-  );
   const memberById = (id: string) => members.find((m) => m.id === id);
 
   const handleAssign = async (userId: string, name: string) => {
     try {
       await assignGymPlan(gymId, plan.id, userId);
       showToast(`Assigned "${plan.title}" to ${name}`);
-      setSearch('');
       load();
     } catch (err: any) {
       console.error(err);
@@ -1383,35 +1389,15 @@ function PlanAssignmentsModal({
           {plan.type === 'general' ? 'General plan — any number of members' : 'User-specific plan'}
         </p>
 
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
-          <input
-            type="text"
+        <div className="mb-6">
+          <UserPicker
+            users={members}
+            excludeIds={assignedIds}
+            onPick={(m) => handleAssign(m.id, m.name)}
+            actionLabel="Assign"
             placeholder="Search members by name/email to assign..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-[#0D0D0D] border border-[#252525] focus:border-[#CCFF00] rounded-lg text-xs font-mono outline-none text-white"
           />
         </div>
-        {search && (
-          <div className="space-y-2 mb-6 max-h-48 overflow-y-auto">
-            {candidates.length === 0 ? (
-              <p className="text-zinc-500 text-xs font-mono">No matching members.</p>
-            ) : (
-              candidates.map((m) => (
-                <div key={m.id} className="flex items-center justify-between bg-[#0D0D0D] border border-zinc-800 rounded-lg p-2.5 text-xs font-mono">
-                  <div>
-                    <div className="text-white font-semibold">{m.name}</div>
-                    <div className="text-zinc-500 text-[10px]">{m.email}</div>
-                  </div>
-                  <button onClick={() => handleAssign(m.id, m.name)} className="px-2.5 py-1 rounded bg-[#CCFF00]/10 border border-[#CCFF00]/20 text-[#CCFF00] hover:bg-[#CCFF00]/20">
-                    Assign
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        )}
 
         <h4 className="text-zinc-500 text-[10px] uppercase tracking-wider mb-2 border-t border-zinc-900 pt-4">
           Current assignments ({assignments.length})

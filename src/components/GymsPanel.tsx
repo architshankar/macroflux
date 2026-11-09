@@ -266,6 +266,7 @@ export function GymsPanel({ showToast }: GymsPanelProps) {
                   <th className={th}>Tier</th>
                   <th className={th}>Status</th>
                   <th className={th}>Source</th>
+                  <th className={th}>Join code</th>
                   <th className={`${th} text-right`}>Actions</th>
                 </tr>
               </thead>
@@ -293,6 +294,22 @@ export function GymsPanel({ showToast }: GymsPanelProps) {
                       <span className={statusBadge(gym.status)}>{gym.status.replace('_', ' ')}</span>
                     </td>
                     <td className={td}>{gym.source === 'admin_added' ? 'Admin-added' : 'Self-signup'}</td>
+                    <td className={td}>
+                      {!gym.join_code ? (
+                        <span className="text-zinc-600">—</span>
+                      ) : (
+                        <span
+                          title={gym.join_code_enabled ? 'Members can join with this code' : 'Code disabled — new members cannot join'}
+                          className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border whitespace-nowrap ${
+                            gym.join_code_enabled
+                              ? 'bg-[#CCFF00]/10 text-[#CCFF00] border-[#CCFF00]/20'
+                              : 'bg-zinc-800 text-zinc-500 border-zinc-700 line-through'
+                          }`}
+                        >
+                          {gym.join_code_enabled ? 'Active' : 'Disabled'}
+                        </span>
+                      )}
+                    </td>
                     <td className={`${td} text-right`}>
                       <div className="inline-flex gap-2 flex-wrap justify-end">
                         {gym.status === 'pending_review' && (
