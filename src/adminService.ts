@@ -407,6 +407,8 @@ export interface GymAdminRow {
   user_id: string;
   role: 'owner' | 'staff';
   created_at: string;
+  email: string | null;
+  full_name: string | null;
 }
 
 export async function listGymAdmins(gymId: string): Promise<GymAdminRow[]> {
@@ -415,6 +417,15 @@ export async function listGymAdmins(gymId: string): Promise<GymAdminRow[]> {
 
 export async function addGymAdmin(gymId: string, payload: { user_id: string; role?: 'owner' | 'staff' }): Promise<GymAdminRow> {
   return apiClient.post(`/admin/gyms/${gymId}/admins`, payload);
+}
+
+// Super-admin only: creates a pre-confirmed email/password login and makes it
+// this gym's admin. 409 if the email is already registered (link by user ID instead).
+export async function createGymManagerAccount(
+  gymId: string,
+  payload: { email: string; password: string; full_name?: string | null; role: 'owner' | 'staff' }
+): Promise<GymAdminRow> {
+  return apiClient.post(`/admin/gyms/${gymId}/admins/account`, payload);
 }
 
 export async function removeGymAdmin(gymId: string, userId: string): Promise<void> {
@@ -657,6 +668,8 @@ export interface GymPlan {
   title: string;
   description: string | null;
   total_weeks: number | null;
+  // false = hidden from members (assigned + membership); nothing is deleted
+  is_enabled: boolean;
   weeks: GymPlanWeek[];
 }
 
@@ -703,6 +716,10 @@ export async function createGymPlan(gymId: string, payload: GymPlanCreatePayload
 
 export async function updateGymPlan(gymId: string, planId: string, payload: GymPlanUpdatePayload): Promise<GymPlan> {
   return apiClient.put(`/admin/gyms/${gymId}/plans/${planId}`, payload);
+}
+
+export async function setGymPlanEnabled(gymId: string, planId: string, enabled: boolean): Promise<GymPlan> {
+  return apiClient.patch(`/admin/gyms/${gymId}/plans/${planId}/enabled`, { enabled });
 }
 
 export async function deleteGymPlan(gymId: string, planId: string): Promise<void> {

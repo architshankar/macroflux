@@ -318,7 +318,7 @@ export function GymMembersTab({
   useEffect(() => {
     loadJoinCode();
     listGymPlans(gym.id)
-      .then((plans) => setGeneralPlanCount(plans.filter((p) => p.type === 'general').length))
+      .then((plans) => setGeneralPlanCount(plans.filter((p) => p.type === 'general' && p.is_enabled !== false).length))
       .catch((err) => {
         console.error(err);
         setGeneralPlanCount(null); // unknown — don't show a possibly-wrong "zero plans" warning
@@ -495,7 +495,7 @@ function JoinCodeCard({
       )}
       {generalPlanCount === 0 && (
         <Notice tone="amber">
-          This gym has no General plans yet, so members who join won't get any plans.{' '}
+          This gym has no enabled General plans, so members who join won't get any plans.{' '}
           <button onClick={onGoToPlans} className="underline hover:text-amber-300">
             Create one in Plans
           </button>

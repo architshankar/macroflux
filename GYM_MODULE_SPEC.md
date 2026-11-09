@@ -773,3 +773,29 @@ non-live notices), "Joined with the code" (`code_member_count`) and total member
 routes by the role `POST /auth/login` returns (`admin` → `/admin`, else `/gym`); a signed-in
 non-super-admin opening `/admin` is sent to `/gym`. Super-admin card shows "(N via code)".
 New service calls: `listMyGyms` (`GET /admin/my-gyms`), `logoutPanel`.
+
+### 2026-11-10 — create gym-manager account from the Admins tab
+
+- backend: `POST /admin/gyms/{gym_id}/admins/account` (super-admin only) — body `{email,
+  password (8–72), full_name?, role: owner|staff}`; creates a pre-confirmed Supabase auth user
+  (same `auth.admin.create_user` path as trainer creation; `profiles.role` stays default —
+  manager access comes from the `gym_admins` row) and links it. 409 if the email is already
+  registered (link by User ID instead); the auth user is deleted again if linking fails.
+  `GymAdminOut` gains `email`/`full_name` (from profiles) on list + create. No SQL needed.
+- admin-panel: Admins tab has a "Create manager account" form (name, email, password with
+  show/generate, role) that shows the credentials once with a copy button; the old User-ID form
+  stays as "link an existing account"; the admin list shows name/email instead of a bare UUID.
+
+### 2026-11-10 — enable / disable gym plans
+
+- **SQL: migration `055_gym_plan_enabled.sql`** — `gym_plans.is_enabled boolean NOT NULL DEFAULT true`.
+  Must be applied before deploying this backend (the code selects the column).
+- backend: `PATCH /admin/gyms/{gym_id}/plans/{plan_id}/enabled` body `{enabled}` → `GymPlanOut`
+  (same gate as editing a plan: super admin or that gym's admin). `GymPlanOut` gains `is_enabled`.
+  A disabled plan is hidden from members on every access path — `GET /client/gym-plans`
+  (assigned and membership), the join response, `GET /gym-plans/{id}/days`, and
+  `POST /workouts/start` with one of its sessions — while its tree, assignments and workout
+  history stay intact; the creator and gym admins keep access. Re-enabling restores everything.
+- admin-panel: Plans tab has a Status column with an Enabled/Disabled switch (confirm on
+  disable); disabled rows are dimmed. The join-code card's "no General plans" warning counts
+  only enabled General plans.

@@ -21,6 +21,9 @@ import {
   Image as ImageIcon,
   Upload,
   KeyRound,
+  Copy,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   AdminGym,
@@ -68,12 +71,14 @@ import {
   getAllTrainers,
   listGymPlans,
   deleteGymPlan,
+  setGymPlanEnabled,
   listGymPlanAssignments,
   assignGymPlan,
   unassignGymPlan,
   listGymAdmins,
   addGymAdmin,
   removeGymAdmin,
+  createGymManagerAccount,
   getUsers,
   listEquipmentTypesCatalog,
   listGymEquipmentTypes,
@@ -82,7 +87,7 @@ import {
 } from '../adminService';
 import { UserAccount } from '../types';
 import { GymPlanEditor } from './GymPlanEditor';
-import { GymMembersTab, UserPicker } from './GymMembersTab';
+import { GymMembersTab, UserPicker, copyToClipboard } from './GymMembersTab';
 import { uploadToCloudinary, isCloudinaryConfigured } from '../cloudinaryClient';
 
 interface GymDetailPanelProps {
@@ -1231,6 +1236,31 @@ function PlansTab({ gymId, showToast }: { gymId: string; showToast: (msg: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gymId]);
 
+  const [togglingPlanId, setTogglingPlanId] = useState<string | null>(null);
+
+  const handleToggleEnabled = async (plan: GymPlan) => {
+    const enable = plan.is_enabled === false;
+    if (
+      !enable &&
+      !window.confirm(
+        `Disable "${plan.title}"? Members (assigned and gym-code members) stop seeing it and can't start its workouts. ` +
+          'Nothing is deleted — enable it again any time to restore access.'
+      )
+    )
+      return;
+    setTogglingPlanId(plan.id);
+    try {
+      const updated = await setGymPlanEnabled(gymId, plan.id, enable);
+      setPlans((prev) => prev.map((p) => (p.id === plan.id ? updated : p)));
+      showToast(enable ? `"${plan.title}" enabled — visible to members again` : `"${plan.title}" disabled — hidden from members`);
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'Error updating plan');
+    } finally {
+      setTogglingPlanId(null);
+    }
+  };
+
   const handleDelete = async (plan: GymPlan) => {
     if (!window.confirm(`Delete plan "${plan.title}"? This removes its whole tree and any assignments.`)) return;
     try {
@@ -1265,12 +1295,13 @@ function PlansTab({ gymId, showToast }: { gymId: string; showToast: (msg: string
                   <th className={th}>Title</th>
                   <th className={th}>Type</th>
                   <th className={th}>Weeks</th>
+                  <th className={th}>Status</th>
                   <th className={`${th} text-right`}>Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1F1F1F]">
                 {plans.map((p) => (
-                  <tr key={p.id} className="hover:bg-[#1A1A1A]">
+                  <tr key={p.id} className={`hover:bg-[#1A1A1A] ${p.is_enabled === false ? 'opacity-60' : ''}`}>
                     <td className={`${td} text-white font-sans font-semibold`}>{p.title}</td>
                     <td className={td}>
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${p.type === 'general' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-purple-500/10 text-purple-400 border-purple-500/20'}`}>
@@ -1278,6 +1309,27 @@ function PlansTab({ gymId, showToast }: { gymId: string; showToast: (msg: string
                       </span>
                     </td>
                     <td className={td}>{p.total_weeks ?? p.weeks.length}</td>
+                    <td className={td}>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={p.is_enabled !== false}
+                        aria-label={`${p.is_enabled === false ? 'Enable' : 'Disable'} ${p.title}`}
+                        onClick={() => handleToggleEnabled(p)}
+                        disabled={togglingPlanId === p.id}
+                        title={p.is_enabled === false ? 'Hidden from members — click to enable' : 'Visible to members — click to disable'}
+                        className="flex items-center gap-2 disabled:opacity-50"
+                      >
+                        <span className={`relative w-8 h-[18px] rounded-full transition-colors ${p.is_enabled !== false ? 'bg-emerald-500' : 'bg-zinc-700'}`}>
+                          <span
+                            className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-black transition-all ${p.is_enabled !== false ? 'left-[16px]' : 'left-0.5'}`}
+                          />
+                        </span>
+                        <span className={`text-[9px] font-bold uppercase ${p.is_enabled !== false ? 'text-emerald-400' : 'text-zinc-500'}`}>
+                          {togglingPlanId === p.id ? '...' : p.is_enabled !== false ? 'Enabled' : 'Disabled'}
+                        </span>
+                      </button>
+                    </td>
                     <td className={`${td} text-right`}>
                       <div className="inline-flex gap-2">
                         <button onClick={() => setAssignmentsPlan(p)} className="p-1 px-2.5 rounded bg-zinc-900 border border-zinc-800 hover:border-[#CCFF00] text-[#9A9A9A] hover:text-[#CCFF00] flex items-center gap-1.5">
@@ -1429,11 +1481,29 @@ function PlanAssignmentsModal({
 // =====================================================================
 // ADMINS
 // =====================================================================
+function generatePassword(length = 12): string {
+  // No look-alike characters (0/O, 1/l/I) — managers often read these off a screen.
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+}
+
+const emptyManagerForm = { full_name: '', email: '', password: '', role: 'owner' as 'owner' | 'staff' };
+
 function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: string) => void }) {
   const [admins, setAdmins] = useState<GymAdminRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newUserId, setNewUserId] = useState('');
   const [newRole, setNewRole] = useState<'owner' | 'staff'>('owner');
+
+  const [managerForm, setManagerForm] = useState(emptyManagerForm);
+  const [showPassword, setShowPassword] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  // Shown once after creation so the super admin can hand the credentials over.
+  const [createdCredentials, setCreatedCredentials] = useState<{ email: string; password: string } | null>(null);
+  const [credsCopied, setCredsCopied] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
@@ -1452,6 +1522,43 @@ function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gymId]);
 
+  const handleCreateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreateError(null);
+    if (managerForm.password.length < 8) {
+      setCreateError('Password must be at least 8 characters');
+      return;
+    }
+    setIsCreating(true);
+    try {
+      const row = await createGymManagerAccount(gymId, {
+        email: managerForm.email.trim(),
+        password: managerForm.password,
+        full_name: managerForm.full_name.trim() || null,
+        role: managerForm.role,
+      });
+      setCreatedCredentials({ email: row.email || managerForm.email.trim().toLowerCase(), password: managerForm.password });
+      setCredsCopied(false);
+      setManagerForm(emptyManagerForm);
+      setShowPassword(false);
+      showToast('Manager account created');
+      load();
+    } catch (err: any) {
+      console.error(err);
+      // 409 = email already registered; 422 = validation. Keep the form filled so it can be fixed.
+      setCreateError(err.message || 'Error creating manager account');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleCopyCredentials = async () => {
+    if (!createdCredentials) return;
+    const text = `Gym manager login\nURL: ${window.location.origin}/login\nEmail: ${createdCredentials.email}\nPassword: ${createdCredentials.password}`;
+    if (await copyToClipboard(text)) setCredsCopied(true);
+    else showToast('Could not copy — select the details and copy them manually');
+  };
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUserId.trim()) return;
@@ -1467,7 +1574,8 @@ function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: strin
   };
 
   const handleRemove = async (row: GymAdminRow) => {
-    if (!window.confirm('Remove this gym admin?')) return;
+    const who = row.full_name || row.email || 'this gym admin';
+    if (!window.confirm(`Remove ${who} as an admin of this gym? Their login stays, but they lose access to this gym.`)) return;
     try {
       await removeGymAdmin(gymId, row.user_id);
       showToast('Gym admin removed');
@@ -1481,8 +1589,129 @@ function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: strin
   return (
     <div className="space-y-6">
       <div className={card}>
+        <h3 className="text-sm font-mono tracking-wider text-white uppercase border-b border-zinc-900 pb-3 flex items-center gap-2">
+          <UserPlus className="w-4 h-4" /> Create manager account
+        </h3>
+        <p className="text-zinc-500 text-[11px] leading-relaxed">
+          Creates a new login for this gym's manager. They sign in at <span className="text-zinc-300 font-mono">/login</span>{' '}
+          and see this gym's member code and member counts (read-only).
+        </p>
+
+        {createdCredentials && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 space-y-2">
+            <div className="text-emerald-400 text-[11px] font-mono uppercase tracking-wider font-bold">
+              Account created — share these details with the manager
+            </div>
+            <div className="font-mono text-xs text-white space-y-0.5 select-all">
+              <div>
+                <span className="text-zinc-500">Login: </span>
+                {window.location.origin}/login
+              </div>
+              <div>
+                <span className="text-zinc-500">Email: </span>
+                {createdCredentials.email}
+              </div>
+              <div>
+                <span className="text-zinc-500">Password: </span>
+                {createdCredentials.password}
+              </div>
+            </div>
+            <p className="text-zinc-500 text-[10px] font-mono">The password won't be shown again after you dismiss this.</p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleCopyCredentials}
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] flex items-center gap-1.5"
+              >
+                {credsCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {credsCopied ? 'Copied' : 'Copy details'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreatedCredentials(null)}
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-400 hover:border-zinc-600"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
+
+        {createError && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs p-2.5 rounded-lg font-mono">{createError}</div>
+        )}
+
+        <form onSubmit={handleCreateAccount} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <input
+            placeholder="Full name"
+            className={inputCls}
+            value={managerForm.full_name}
+            onChange={(e) => setManagerForm({ ...managerForm, full_name: e.target.value })}
+            maxLength={120}
+          />
+          <input
+            required
+            type="email"
+            autoComplete="off"
+            placeholder="Email (their login ID)"
+            className={inputCls}
+            value={managerForm.email}
+            onChange={(e) => setManagerForm({ ...managerForm, email: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <input
+                required
+                minLength={8}
+                maxLength={72}
+                type={showPassword ? 'text' : 'password'}
+                autoComplete="new-password"
+                placeholder="Password (min 8 characters)"
+                className={`${inputCls} pr-9`}
+                value={managerForm.password}
+                onChange={(e) => setManagerForm({ ...managerForm, password: e.target.value })}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                title={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white"
+              >
+                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setManagerForm({ ...managerForm, password: generatePassword() });
+                setShowPassword(true);
+              }}
+              className="px-3 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] shrink-0"
+            >
+              Generate
+            </button>
+          </div>
+          <select
+            className={inputCls}
+            value={managerForm.role}
+            onChange={(e) => setManagerForm({ ...managerForm, role: e.target.value as 'owner' | 'staff' })}
+          >
+            <option value="owner">Owner</option>
+            <option value="staff">Staff</option>
+          </select>
+          <button
+            type="submit"
+            disabled={isCreating}
+            className="sm:col-span-2 py-2.5 bg-[#CCFF00] text-black font-display font-bold rounded-lg uppercase text-xs tracking-wider flex items-center justify-center gap-1.5 disabled:opacity-50"
+          >
+            <UserPlus className="w-3.5 h-3.5" /> {isCreating ? 'Creating...' : 'Create manager account'}
+          </button>
+        </form>
+      </div>
+
+      <div className={card}>
         <h3 className="text-sm font-mono tracking-wider text-white uppercase border-b border-zinc-900 pb-3">
-          Add Gym Admin (super-admin only — not yet delegable per spec §11)
+          Or link an existing account by User ID
         </h3>
         <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-3">
           <input required placeholder="User ID" className={inputCls} value={newUserId} onChange={(e) => setNewUserId(e.target.value)} />
@@ -1490,8 +1719,8 @@ function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: strin
             <option value="owner">Owner</option>
             <option value="staff">Staff</option>
           </select>
-          <button type="submit" className="py-2.5 px-4 bg-[#CCFF00] text-black font-display font-bold rounded-lg uppercase text-xs tracking-wider flex items-center justify-center gap-1.5 shrink-0">
-            <Plus className="w-3.5 h-3.5" /> Add
+          <button type="submit" className="py-2.5 px-4 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] font-mono rounded-lg text-xs flex items-center justify-center gap-1.5 shrink-0">
+            <Plus className="w-3.5 h-3.5" /> Link
           </button>
         </form>
       </div>
@@ -1507,12 +1736,16 @@ function AdminsTab({ gymId, showToast }: { gymId: string; showToast: (msg: strin
         ) : (
           <div className="space-y-2">
             {admins.map((a) => (
-              <div key={a.id} className="flex items-center justify-between bg-[#0D0D0D] border border-zinc-800 rounded-lg p-3 text-xs font-mono">
-                <div>
-                  <div className="text-white font-semibold">{a.user_id}</div>
-                  <div className="text-zinc-500 text-[10px] uppercase">{a.role}</div>
+              <div key={a.id} className="flex items-center justify-between bg-[#0D0D0D] border border-zinc-800 rounded-lg p-3 text-xs font-mono gap-3">
+                <div className="min-w-0">
+                  <div className="text-white font-semibold truncate">{a.full_name || a.email || a.user_id}</div>
+                  <div className="text-zinc-500 text-[10px] truncate">
+                    <span className="uppercase">{a.role}</span>
+                    {a.email && (a.full_name ? ` · ${a.email}` : '')}
+                    {!a.email && a.full_name ? ` · ${a.user_id}` : ''}
+                  </div>
                 </div>
-                <button onClick={() => handleRemove(a)} className="text-zinc-500 hover:text-red-400">
+                <button onClick={() => handleRemove(a)} title="Remove gym admin" className="text-zinc-500 hover:text-red-400 shrink-0">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
