@@ -24,6 +24,11 @@ import {
   Copy,
   Eye,
   EyeOff,
+  GripVertical,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import {
   AdminGym,
@@ -48,6 +53,7 @@ import {
   listGymGallery,
   addGymGalleryPhoto,
   deleteGymGalleryPhoto,
+  reorderGymGallery,
   listEquipmentCategories,
   createEquipmentCategory,
   listEquipmentModels,
@@ -62,6 +68,7 @@ import {
   attachGymEquipment,
   updateGymEquipment,
   detachGymEquipment,
+  reorderGymEquipment,
   listGymAmenities,
   attachGymAmenity,
   detachGymAmenity,
@@ -84,11 +91,13 @@ import {
   listGymEquipmentTypes,
   attachGymEquipmentType,
   detachGymEquipmentType,
+  reorderGymEquipmentTypes,
 } from '../adminService';
 import { UserAccount } from '../types';
 import { GymPlanEditor } from './GymPlanEditor';
 import { GymMembersTab, UserPicker, copyToClipboard } from './GymMembersTab';
 import { uploadToCloudinary, isCloudinaryConfigured } from '../cloudinaryClient';
+import { moveItem, sortByPosition, useDragReorder, useOrderSaver } from '../hooks/useReorder';
 
 interface GymDetailPanelProps {
   gym: AdminGym;
@@ -306,12 +315,17 @@ function GalleryTab({ gymId, showToast }: { gymId: string; showToast: (msg: stri
   const [photos, setPhotos] = useState<GymGalleryPhoto[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const { save: saveOrder, isSaving: isSavingOrder } = useOrderSaver(setPhotos, showToast);
+
+  const commitOrder = (next: GymGalleryPhoto[]) =>
+    saveOrder(photos, next, (n) => reorderGymGallery(gymId, n.map((p) => p.id)));
+  const drag = useDragReorder(photos, commitOrder, isSavingOrder);
 
   const load = async () => {
     setIsLoading(true);
     try {
       const ph = await listGymGallery(gymId);
-      setPhotos(ph.sort((a, b) => a.position - b.position));
+      setPhotos(sortByPosition(ph));
     } catch (err) {
       console.error(err);
       showToast('Error loading gallery');
@@ -373,20 +387,56 @@ function GalleryTab({ gymId, showToast }: { gymId: string; showToast: (msg: stri
       ) : photos.length === 0 ? (
         <p className="text-zinc-500 text-xs font-mono py-1">No gallery photos yet.</p>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-          {photos.map((p) => (
-            <div key={p.id} className="relative aspect-square rounded-lg overflow-hidden border border-zinc-800 bg-zinc-900 group">
-              <img src={p.image_url} alt="" className="w-full h-full object-cover" />
-              <button
-                onClick={() => handleDelete(p)}
-                className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-zinc-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Remove photo"
+        <>
+          {photos.length > 1 && (
+            <p className="text-zinc-500 text-[10px] font-mono">
+              Drag photos (or use the arrows) to set the order members see. #1 shows first.
+            </p>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
+            {photos.map((p, i) => (
+              <div
+                key={p.id}
+                {...drag.getItemProps(p)}
+                className={`relative aspect-square rounded-lg overflow-hidden border bg-zinc-900 group cursor-grab active:cursor-grabbing transition-all ${
+                  drag.overId === p.id && drag.dragId !== p.id ? 'border-[#CCFF00] ring-1 ring-[#CCFF00]/40' : 'border-zinc-800'
+                } ${drag.dragId === p.id ? 'opacity-40' : ''}`}
               >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-        </div>
+                <img src={p.image_url} alt="" draggable={false} className="w-full h-full object-cover pointer-events-none" />
+                <span className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-black/70 text-[9px] font-mono text-zinc-300">
+                  {i + 1}
+                </span>
+                <button
+                  onClick={() => handleDelete(p)}
+                  className="absolute top-1 right-1 p-1 rounded-full bg-black/70 text-zinc-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove photo"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+                {photos.length > 1 && (
+                  <div className="absolute bottom-1 inset-x-1 flex justify-between opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => commitOrder(moveItem(photos, i, i - 1))}
+                      disabled={i === 0 || isSavingOrder}
+                      className="p-1 rounded-full bg-black/70 text-zinc-300 hover:text-[#CCFF00] disabled:invisible"
+                      title="Move earlier"
+                    >
+                      <ChevronLeft className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => commitOrder(moveItem(photos, i, i + 1))}
+                      disabled={i === photos.length - 1 || isSavingOrder}
+                      className="p-1 rounded-full bg-black/70 text-zinc-300 hover:text-[#CCFF00] disabled:invisible"
+                      title="Move later"
+                    >
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
       )}
       <label className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs font-mono text-zinc-300 hover:border-[#CCFF00] hover:text-[#CCFF00] cursor-pointer w-fit">
         <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Uploading...' : 'Upload photos'}
@@ -419,12 +469,17 @@ function EquipmentTab({ gymId, showToast }: { gymId: string; showToast: (msg: st
   const [isLoading, setIsLoading] = useState(true);
   const [newModel, setNewModel] = useState({ brand: '', model_name: '', photo_url: '' });
   const [editingQty, setEditingQty] = useState<{ id: string; value: string } | null>(null);
+  const { save: saveOrder, isSaving: isSavingOrder } = useOrderSaver(setGymEquipment, showToast);
+
+  const commitOrder = (next: GymEquipment[]) =>
+    saveOrder(gymEquipment, next, (n) => reorderGymEquipment(gymId, n.map((ge) => ge.id)));
+  const drag = useDragReorder(gymEquipment, commitOrder, isSavingOrder);
 
   const loadCore = async () => {
     setIsLoading(true);
     try {
       const [ge, cats] = await Promise.all([listGymEquipment(gymId), listEquipmentCategories()]);
-      setGymEquipment(ge);
+      setGymEquipment(sortByPosition(ge));
       setCategories(cats);
     } catch (err) {
       console.error(err);
@@ -616,6 +671,11 @@ function EquipmentTab({ gymId, showToast }: { gymId: string; showToast: (msg: st
         <h3 className="text-sm font-mono tracking-wider text-white uppercase border-b border-zinc-900 pb-3">
           This Gym's Equipment ({gymEquipment.length})
         </h3>
+        {gymEquipment.length > 1 && (
+          <p className="text-zinc-500 text-[10px] font-mono">
+            Drag rows (or use the arrows) to set the order members see. Detach removes equipment from this gym only.
+          </p>
+        )}
         {isLoading ? (
           <p className="text-zinc-500 text-xs font-mono">Loading...</p>
         ) : gymEquipment.length === 0 ? (
@@ -625,6 +685,7 @@ function EquipmentTab({ gymId, showToast }: { gymId: string; showToast: (msg: st
             <table className="w-full text-left font-mono text-xs text-[#9A9A9A]">
               <thead className="bg-[#0A0A0A] text-white border-b border-[#202020] uppercase font-bold text-[10px] tracking-widest">
                 <tr>
+                  <th className={`${th} w-16`} title="Display order">#</th>
                   <th className={th}>Model</th>
                   <th className={th}>Category</th>
                   <th className={th}>Quantity</th>
@@ -632,8 +693,37 @@ function EquipmentTab({ gymId, showToast }: { gymId: string; showToast: (msg: st
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#1F1F1F]">
-                {gymEquipment.map((ge) => (
-                  <tr key={ge.id} className="hover:bg-[#1A1A1A]">
+                {gymEquipment.map((ge, i) => (
+                  <tr
+                    key={ge.id}
+                    {...drag.getItemProps(ge, editingQty?.id !== ge.id)}
+                    className={`hover:bg-[#1A1A1A] ${
+                      drag.overId === ge.id && drag.dragId !== ge.id ? 'bg-[#CCFF00]/5 outline outline-1 outline-[#CCFF00]/40' : ''
+                    } ${drag.dragId === ge.id ? 'opacity-40' : ''}`}
+                  >
+                    <td className={td}>
+                      <div className="flex items-center gap-1">
+                        <GripVertical className="w-3.5 h-3.5 text-zinc-600 cursor-grab" />
+                        <div className="flex flex-col">
+                          <button
+                            onClick={() => commitOrder(moveItem(gymEquipment, i, i - 1))}
+                            disabled={i === 0 || isSavingOrder}
+                            className="text-zinc-500 hover:text-[#CCFF00] disabled:opacity-20"
+                            title="Move up"
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => commitOrder(moveItem(gymEquipment, i, i + 1))}
+                            disabled={i === gymEquipment.length - 1 || isSavingOrder}
+                            className="text-zinc-500 hover:text-[#CCFF00] disabled:opacity-20"
+                            title="Move down"
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    </td>
                     <td className={`${td} text-white font-sans font-semibold`}>{ge.equipment_model.brand} {ge.equipment_model.model_name}</td>
                     <td className={td}>{ge.equipment_model.category_name}</td>
                     <td className={td}>
@@ -697,7 +787,7 @@ function EquipmentTypesTab({ gymId, showToast }: { gymId: string; showToast: (ms
     try {
       const [cat, gymTypes] = await Promise.all([listEquipmentTypesCatalog(), listGymEquipmentTypes(gymId)]);
       setCatalog(cat);
-      setSelections(gymTypes);
+      setSelections(sortByPosition(gymTypes));
     } catch (err) {
       console.error(err);
       showToast('Error loading equipment types');
@@ -755,6 +845,13 @@ function EquipmentTypesTab({ gymId, showToast }: { gymId: string; showToast: (ms
                   <h4 className="text-zinc-400 text-[10px] uppercase tracking-wider mb-2">
                     {label} ({items.filter((t) => selectionByTypeId.has(t.id)).length}/{items.length} selected)
                   </h4>
+                  <SelectedTypeOrder
+                    gymId={gymId}
+                    category={categoryId}
+                    selections={selections}
+                    setSelections={setSelections}
+                    showToast={showToast}
+                  />
                   {items.length === 0 ? (
                     <p className="text-zinc-600 text-[10px] font-mono">No catalog entries for this category.</p>
                   ) : (
@@ -794,6 +891,77 @@ function EquipmentTypesTab({ gymId, showToast }: { gymId: string; showToast: (ms
             })}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Display-order strip for one category's selected types (§12b). Ordering is per
+// category, matching the app's one-carousel-per-category layout. Only shown once a
+// category has 2+ selections — nothing to order otherwise.
+function SelectedTypeOrder({
+  gymId,
+  category,
+  selections,
+  setSelections,
+  showToast,
+}: {
+  gymId: string;
+  category: EquipmentTypeCategory;
+  selections: GymEquipmentType[];
+  setSelections: (s: GymEquipmentType[]) => void;
+  showToast: (msg: string) => void;
+}) {
+  const items = selections.filter((s) => s.equipment_type.category === category);
+  const { save, isSaving } = useOrderSaver<GymEquipmentType>(setSelections, showToast);
+
+  // Rebuild the full selections array with this category's slots refilled in the new order.
+  const merge = (nextInCategory: GymEquipmentType[]) => {
+    let k = 0;
+    return selections.map((s) => (s.equipment_type.category === category ? nextInCategory[k++] : s));
+  };
+  const commit = (next: GymEquipmentType[]) =>
+    save(selections, merge(next), () => reorderGymEquipmentTypes(gymId, category, next.map((s) => s.id)));
+  const drag = useDragReorder(items, commit, isSaving);
+
+  if (items.length < 2) return null;
+
+  return (
+    <div className="mb-3 bg-[#0D0D0D] border border-zinc-900 rounded-lg p-2.5">
+      <div className="text-zinc-500 text-[9px] font-mono uppercase tracking-wider mb-2">
+        Display order on the gym page — drag or use the arrows
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((s, i) => (
+          <div
+            key={s.id}
+            {...drag.getItemProps(s)}
+            className={`flex items-center gap-1.5 pl-1 pr-1.5 py-1 rounded-md border bg-[#141414] cursor-grab active:cursor-grabbing text-[10px] font-mono text-zinc-300 ${
+              drag.overId === s.id && drag.dragId !== s.id ? 'border-[#CCFF00]' : 'border-zinc-800'
+            } ${drag.dragId === s.id ? 'opacity-40' : ''}`}
+          >
+            <GripVertical className="w-3 h-3 text-zinc-600" />
+            <span className="text-zinc-500">{i + 1}.</span>
+            <img src={s.equipment_type.image_url} alt="" draggable={false} className="w-5 h-5 rounded object-cover bg-zinc-900" />
+            <span className="max-w-[9rem] truncate">{s.equipment_type.name}</span>
+            <button
+              onClick={() => commit(moveItem(items, i, i - 1))}
+              disabled={i === 0 || isSaving}
+              className="text-zinc-500 hover:text-[#CCFF00] disabled:opacity-20"
+              title="Move earlier"
+            >
+              <ChevronLeft className="w-3 h-3" />
+            </button>
+            <button
+              onClick={() => commit(moveItem(items, i, i + 1))}
+              disabled={i === items.length - 1 || isSaving}
+              className="text-zinc-500 hover:text-[#CCFF00] disabled:opacity-20"
+              title="Move later"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

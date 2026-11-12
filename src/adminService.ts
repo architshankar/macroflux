@@ -383,6 +383,13 @@ export async function deleteGymGalleryPhoto(gymId: string, photoId: string): Pro
   await apiClient.delete(`/admin/gyms/${gymId}/gallery/${photoId}`);
 }
 
+// Reorder (GYM_MODULE_SPEC.md §12b): send every photo id in the new display order;
+// backend rewrites `position` to match. Members read the new order through the
+// existing GET /gyms/{id} — no app release needed.
+export async function reorderGymGallery(gymId: string, photoIds: string[]): Promise<GymGalleryPhoto[]> {
+  return apiClient.put(`/admin/gyms/${gymId}/gallery/order`, { ids: photoIds });
+}
+
 // Multipart upload — bypasses apiClient (which always sends JSON) since this
 // needs a browser-set multipart/form-data boundary. Two-call flow per
 // GYM_MODULE_SPEC.md §11: create the gym first, then upload its photo against
@@ -542,6 +549,7 @@ export interface GymEquipment {
   gym_id: string;
   quantity: number | null;
   photo_url: string | null;
+  position?: number; // §12b — absent until the backend ships ordering
   equipment_model: EquipmentModel;
 }
 
@@ -572,6 +580,11 @@ export async function updateGymEquipment(
 
 export async function detachGymEquipment(gymId: string, gymEquipmentId: string): Promise<void> {
   await apiClient.delete(`/admin/gyms/${gymId}/equipment/${gymEquipmentId}`);
+}
+
+// §12b — every gym_equipment row id for this gym, in the new display order.
+export async function reorderGymEquipment(gymId: string, gymEquipmentIds: string[]): Promise<GymEquipment[]> {
+  return apiClient.put(`/admin/gyms/${gymId}/equipment/order`, { ids: gymEquipmentIds });
 }
 
 export async function listGymAmenities(gymId: string): Promise<GymAmenity[]> {
@@ -851,6 +864,7 @@ export interface EquipmentTypesByCategory {
 export interface GymEquipmentType {
   id: string; // gym_equipment_types row id — pass this to the detach call, not equipment_type.id
   gym_id: string;
+  position?: number; // §12b — ordering is per category; absent until the backend ships it
   equipment_type: EquipmentType;
 }
 
@@ -868,4 +882,14 @@ export async function attachGymEquipmentType(gymId: string, equipmentTypeId: str
 
 export async function detachGymEquipmentType(gymId: string, gymEquipmentTypeId: string): Promise<void> {
   await apiClient.delete(`/admin/gyms/${gymId}/equipment-types/${gymEquipmentTypeId}`);
+}
+
+// §12b — reorder one category's selections: every gym_equipment_types row id this gym
+// has in `category`, in the new display order. Other categories are untouched.
+export async function reorderGymEquipmentTypes(
+  gymId: string,
+  category: EquipmentTypeCategory,
+  gymEquipmentTypeIds: string[]
+): Promise<GymEquipmentType[]> {
+  return apiClient.put(`/admin/gyms/${gymId}/equipment-types/order`, { category, ids: gymEquipmentTypeIds });
 }

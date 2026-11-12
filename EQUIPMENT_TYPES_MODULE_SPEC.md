@@ -279,3 +279,12 @@ per spec §7, it's explicitly out of scope, fixed/seeded list only.
 Not live-tested against the backend this session (no admin credentials available, same
 constraint as every prior admin-panel entry in the linked `GYM_MODULE_SPEC.md`) —
 verified via `tsc --noEmit` and `vite build`, both clean.
+
+### admin-panel — 2026-11-12 — per-category display order
+
+Gym admins can now reorder a gym's selected types within each category. The contract
+(`gym_equipment_types.position`, `PUT /admin/gyms/{gym_id}/equipment-types/order` with
+`{category, ids}`, and `GET /gyms/{gym_id}/equipment-types` sorting each category by
+`position`) is in `GYM_MODULE_SPEC.md` §12b. The admin UI is built. **The backend is not built yet.**
+No app change is needed as long as the app renders each category list in the order the
+response gives it.

@@ -447,6 +447,78 @@ only when `walkthrough_video_url` is non-null. Both sections hidden entirely whe
 empty — same graceful-degradation pattern already used for the nullable `photo_url`
 hero (§12's 2026-09-03 note).
 
+## 12b. Admin-controlled display order (added 2026-11-12)
+
+**Goal (CONFIRMED with product owner):** gym admins can reorder (a) gallery photos,
+(b) the gym's brand/model equipment (`gym_equipment`), and (c) the gym's equipment-type
+selections (`gym_equipment_types`, see `EQUIPMENT_TYPES_MODULE_SPEC.md`), **without a
+mobile-app release.** The admin panel UI is already built against the contract below
+(see the 2026-11-12 log entry).
+
+**How the "no app release" part works:** the reorder endpoints are admin-only, so the
+app never calls them. The app keeps calling the member reads it already uses, which
+must now return rows **sorted by `position`**. The app renders lists in the order it
+receives them, so it shows the new order with no code change. Do **not** depend on the
+app reading `position` itself. Adding the field to member responses is harmless but
+optional.
+
+> **Check on the app side before calling this done:** confirm `app/gym/[gymId].tsx`
+> (FitnessApp repo) does not re-sort these lists client-side (alphabetically, by
+> category, etc.). If it does, admin order is ignored for that list and *that* list
+> needs an app change. Nothing else does.
+
+### Data model
+
+- `gym_gallery_photos.position` — already exists (§12a). No migration needed.
+- **SQL: migration `056_gym_display_order.sql`** (number is a suggestion; use the next free one):
+  - `gym_equipment.position int NOT NULL DEFAULT 0`
+  - `gym_equipment_types.position int NOT NULL DEFAULT 0`
+  - Backfill so existing gyms keep their current order:
+    `row_number() OVER (PARTITION BY gym_id ORDER BY created_at, id) - 1` for
+    `gym_equipment`, and the same `PARTITION BY gym_id, <equipment_types.category>`
+    for `gym_equipment_types` (ordering there is **per category**, since the app shows
+    one carousel per category).
+  - Indexes on `(gym_id, position)` are nice-to-have, not required at this size.
+- On attach (`POST .../equipment`, `POST .../equipment-types`): set `position` = current
+  max + 1 within the same scope (gym, or gym + category), the same rule the gallery
+  already uses, so new items land at the end.
+- On delete/detach: leave gaps. Ordering only needs to be relative, so no renumbering.
+
+### New admin endpoints
+
+Same auth as the existing gym-scoped writes: `require_gym_admin_user_id` (super admin
+or that gym's `gym_admins`). All three take the **full** ordered id list for their
+scope and rewrite `position` to `0..n-1` in one transaction.
+
+| Method + path | Body | Behaviour |
+|---|---|---|
+| `PUT /admin/gyms/{gym_id}/gallery/order` | `{ids: uuid[]}` (gallery photo ids) | Returns the photos (`AdminGalleryPhotoOut[]`) in the new order |
+| `PUT /admin/gyms/{gym_id}/equipment/order` | `{ids: uuid[]}` (`gym_equipment` row ids) | Returns the gym's equipment list in the new order |
+| `PUT /admin/gyms/{gym_id}/equipment-types/order` | `{category: 'plates'\|'dumbbells'\|'accessories', ids: uuid[]}` (`gym_equipment_types` row ids) | Only touches that category's rows; returns the gym's full selections list |
+
+Validation: `ids` must be **exactly** the set of that gym's rows in scope. No
+missing ids, no extras, no duplicates, and nothing from another gym or category.
+Otherwise return 422 with a message like "ids must match this gym's current list, refresh
+and retry". This rejects stale admin tabs instead of silently half-applying an order.
+
+**Route ordering gotcha (FastAPI):** `.../gallery/order`, `.../equipment/order` and
+`.../equipment-types/order` sit alongside the existing `.../{id}` routes. They're
+`PUT`, and nothing else on those paths is `PUT`, so they don't collide. Until these
+routes exist, the admin panel receives `405 Method Not Allowed` (the path matches
+`/{id}`), puts the old order back on screen, and shows "Reordering is not live on the
+backend yet".
+
+### Read endpoints that must sort by `position`
+
+| Endpoint | Sort |
+|---|---|
+| `GET /gyms/{gym_id}` → `gallery_photos` | `position, created_at` (verify; §12a already implies this) |
+| `GET /gyms/{gym_id}/equipment` (member) | `position, created_at` |
+| `GET /gyms/{gym_id}/equipment-types` (member, grouped) | within each category list: `position, created_at` |
+| `GET /admin/gyms/{gym_id}/gallery`, `/equipment`, `/equipment-types` | same as above, and **include `position`** in each row (the admin panel sorts by it when present) |
+
+No other member contract changes, so existing app builds keep working unchanged.
+
 ## 13. Explicitly out of scope for this pass
 
 - Trainer booking/calendar/time-slot selection (§8).
@@ -799,3 +871,21 @@ New service calls: `listMyGyms` (`GET /admin/my-gyms`), `logoutPanel`.
 - admin-panel: Plans tab has a Status column with an Enabled/Disabled switch (confirm on
   disable); disabled rows are dimmed. The join-code card's "no General plans" warning counts
   only enabled General plans.
+
+### admin-panel — 2026-11-12 — reorder gallery / equipment / equipment types (§12b)
+
+- **Backend not built yet.** §12b is the contract. The admin panel is built against it and shows
+  "not live on the backend yet" (old order put back) until the `PUT .../order` routes exist.
+- `src/adminService.ts`: `reorderGymGallery`, `reorderGymEquipment`,
+  `reorderGymEquipmentTypes(gymId, category, ids)`; optional `position` on `GymEquipment` /
+  `GymEquipmentType`.
+- `src/hooks/useReorder.ts` (new): HTML5 drag-and-drop hook (no new dependency), optimistic
+  save that puts the old order back on failure, and `sortByPosition` (falls back to the server's
+  order when `position` is absent).
+- `GymDetailPanel.tsx`: Gallery has draggable thumbnails with order numbers and ←/→ buttons.
+  Equipment table has a new order column with a drag handle and ↑/↓ buttons (dragging is turned
+  off on a row while its quantity is being edited); Detach is unchanged. Equipment Types has a
+  per-category "Display order" strip (shown at 2+ selections) with drag and ←/→ buttons.
+  Arrow buttons are there because HTML5 drag doesn't fire on touch screens.
+- Verified: `npx tsc --noEmit` clean. Not exercised against a live backend (endpoints don't
+  exist yet).
