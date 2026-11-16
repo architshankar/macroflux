@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { X, Plus, Trash2, Save, FileJson } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Plus, Trash2, Save, FileJson, Upload } from 'lucide-react';
 import {
   GymPlan,
+  GymPlanSubstitutionIn,
   GymPlanWeek,
   GymPlanSession,
   GymPlanPrescription,
@@ -57,6 +58,130 @@ function stripIds(weeks: GymPlanWeek[]): GymPlanWeek[] {
   }));
 }
 
+// ---------------------------------------------------------------------------
+// JSON import — the JSON view holds the WHOLE plan (title/description/
+// total_weeks/type + weeks), not just the weeks array. Accepts:
+//   - a full plan object: { title | plan_name | program_name | name,
+//     description | cycle_note, total_weeks, type, weeks: [...] }
+//   - a bare weeks array (legacy shape of this editor)
+// and normalizes field-name aliases used by the program-uploader JSON
+// (week, block, exercises, name, rest, notes, string substitutions) onto the
+// backend's WeekIn/SessionIn/PrescriptionIn shape. The backend silently drops
+// unknown keys, so without this an aliased file saves with no exercises.
+// ---------------------------------------------------------------------------
+interface ParsedPlanJson {
+  type?: 'general' | 'user_specific';
+  title?: string;
+  description?: string | null;
+  total_weeks?: number | null;
+  weeks: GymPlanWeek[];
+}
+
+const pick = (obj: any, ...keys: string[]) => {
+  for (const k of keys) if (obj?.[k] !== undefined && obj?.[k] !== null) return obj[k];
+  return undefined;
+};
+
+const toInt = (v: any): number | null => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseInt(String(v), 10);
+  return Number.isFinite(n) ? n : null;
+};
+
+const toNum = (v: any): number | null => {
+  if (v === undefined || v === null || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+};
+
+const toStr = (v: any): string | null => (v === undefined || v === null ? null : String(v));
+
+function normalizeSubstitution(sub: any, where: string): GymPlanSubstitutionIn {
+  if (typeof sub === 'string') return { name: sub };
+  const name = pick(sub, 'name', 'exercise_name');
+  if (!name || !String(name).trim()) throw new Error(`${where}: substitution is missing "name"`);
+  const out: GymPlanSubstitutionIn = { name: String(name).trim() };
+  if (sub.tutorial_url !== undefined) out.tutorial_url = sub.tutorial_url;
+  if (sub.tracking_type !== undefined) out.tracking_type = sub.tracking_type;
+  if (sub.is_unilateral !== undefined) out.is_unilateral = !!sub.is_unilateral;
+  if (sub.muscle_group !== undefined) out.muscle_group = sub.muscle_group;
+  return out;
+}
+
+function normalizePrescription(p: any, where: string, index: number): GymPlanPrescription {
+  if (!p || typeof p !== 'object') throw new Error(`${where}: each exercise must be an object`);
+  const name = pick(p, 'exercise_name', 'name', 'exercise');
+  if (!name || !String(name).trim()) throw new Error(`${where}: exercise is missing "exercise_name"`);
+  const out: GymPlanPrescription = {
+    exercise_name: String(name).trim(),
+    sequence_order: toInt(pick(p, 'sequence_order', 'order')) ?? index + 1,
+    warm_up_sets: pick(p, 'warm_up_sets', 'warmup_sets') ?? null,
+    working_sets: pick(p, 'working_sets', 'sets') ?? null,
+    target_reps: toStr(pick(p, 'target_reps', 'reps')),
+    target_reps_left: toStr(p.target_reps_left),
+    target_reps_right: toStr(p.target_reps_right),
+    early_set_rpe: toNum(p.early_set_rpe),
+    last_set_rpe: toNum(p.last_set_rpe),
+    rest_time: toStr(pick(p, 'rest_time', 'rest')),
+    intensity_technique: toStr(p.intensity_technique),
+    prescription_notes: toStr(pick(p, 'prescription_notes', 'notes')),
+    substitutions: (Array.isArray(p.substitutions) ? p.substitutions : []).map((s: any) => normalizeSubstitution(s, where)),
+  };
+  if (p.tutorial_url !== undefined) out.tutorial_url = p.tutorial_url;
+  if (p.tracking_type !== undefined) out.tracking_type = p.tracking_type;
+  if (p.is_unilateral !== undefined) out.is_unilateral = !!p.is_unilateral;
+  if (p.muscle_group !== undefined) out.muscle_group = p.muscle_group;
+  return out;
+}
+
+function normalizeWeeks(rawWeeks: any): GymPlanWeek[] {
+  if (!Array.isArray(rawWeeks)) throw new Error('"weeks" must be an array');
+  return rawWeeks.map((w: any, wi: number) => {
+    if (!w || typeof w !== 'object') throw new Error(`Week ${wi + 1}: must be an object`);
+    const weekNumber = toInt(pick(w, 'week_number', 'week')) ?? wi + 1;
+    const rawSessions = pick(w, 'sessions', 'days') ?? [];
+    if (!Array.isArray(rawSessions)) throw new Error(`Week ${weekNumber}: "sessions" must be an array`);
+    return {
+      week_number: weekNumber,
+      block_number: toInt(pick(w, 'block_number', 'block')),
+      block_label: toStr(w.block_label),
+      is_deload: !!w.is_deload,
+      sessions: rawSessions.map((s: any, si: number) => {
+        if (!s || typeof s !== 'object') throw new Error(`Week ${weekNumber}, session ${si + 1}: must be an object`);
+        const sessionNumber = toInt(pick(s, 'session_number', 'session', 'day')) ?? si + 1;
+        const where = `Week ${weekNumber}, session ${sessionNumber}`;
+        const rawPrescriptions = pick(s, 'prescriptions', 'exercises') ?? [];
+        if (!Array.isArray(rawPrescriptions)) throw new Error(`${where}: "prescriptions" must be an array`);
+        return {
+          session_number: sessionNumber,
+          session_label: toStr(pick(s, 'session_label', 'label', 'name')),
+          prescriptions: rawPrescriptions.map((p: any, pi: number) => normalizePrescription(p, where, pi)),
+        };
+      }),
+    };
+  });
+}
+
+function parsePlanJson(text: string): ParsedPlanJson {
+  const data = JSON.parse(text);
+  if (Array.isArray(data)) return { weeks: normalizeWeeks(data) };
+  if (!data || typeof data !== 'object') throw new Error('Expected a plan object (or an array of weeks)');
+
+  const out: ParsedPlanJson = { weeks: normalizeWeeks(data.weeks ?? []) };
+  const title = pick(data, 'title', 'plan_name', 'program_name', 'name');
+  if (title !== undefined) out.title = String(title);
+  const description = pick(data, 'description', 'cycle_note');
+  if (description !== undefined) out.description = String(description);
+  if ('total_weeks' in data) out.total_weeks = toInt(data.total_weeks);
+  if (data.type !== undefined) {
+    if (data.type !== 'general' && data.type !== 'user_specific') {
+      throw new Error('"type" must be "general" or "user_specific"');
+    }
+    out.type = data.type;
+  }
+  return out;
+}
+
 export function GymPlanEditor({ gymId, plan, onClose, onSaved, showToast }: GymPlanEditorProps) {
   const isEdit = !!plan;
   const [type, setType] = useState<'general' | 'user_specific'>(plan?.type || 'general');
@@ -69,6 +194,7 @@ export function GymPlanEditor({ gymId, plan, onClose, onSaved, showToast }: GymP
   const [showJson, setShowJson] = useState(false);
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState('');
+  const jsonFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listGymPlanExercises(gymId)
@@ -135,49 +261,119 @@ export function GymPlanEditor({ gymId, plan, onClose, onSaved, showToast }: GymP
     );
   };
 
+  // The JSON view shows the whole plan, starting at the plan name.
   const openJsonView = () => {
-    setJsonText(JSON.stringify(stripIds(weeks), null, 2));
+    const doc: Record<string, any> = {
+      title,
+      description: description || null,
+      total_weeks: totalWeeks ? parseInt(totalWeeks, 10) : null,
+    };
+    if (!isEdit) doc.type = type; // type is immutable after creation
+    doc.weeks = stripIds(weeks);
+    setJsonText(JSON.stringify(doc, null, 2));
     setJsonError('');
     setShowJson(true);
   };
 
-  const applyJson = () => {
+  // Parses the JSON box and pushes it into the form state. Returns the parsed
+  // plan (so save can use it directly, without waiting on a state update), or
+  // null if it's invalid.
+  const applyJsonText = (text: string): ParsedPlanJson | null => {
     try {
-      const parsed = JSON.parse(jsonText);
-      if (!Array.isArray(parsed)) throw new Error('Expected a JSON array of weeks');
-      setWeeks(parsed);
-      setShowJson(false);
+      const parsed = parsePlanJson(text);
+      if (isEdit && parsed.type && parsed.type !== type) {
+        throw new Error(`"type" can't be changed after creation (this plan is "${type}")`);
+      }
+      setWeeks(parsed.weeks);
+      if (parsed.title !== undefined) setTitle(parsed.title);
+      if (parsed.description !== undefined) setDescription(parsed.description ?? '');
+      if (parsed.total_weeks !== undefined) setTotalWeeks(parsed.total_weeks != null ? String(parsed.total_weeks) : '');
+      if (parsed.type && !isEdit) setType(parsed.type);
       setJsonError('');
+      return parsed;
     } catch (err: any) {
       setJsonError(err.message || 'Invalid JSON');
+      return null;
     }
   };
 
+  const applyJson = () => {
+    if (applyJsonText(jsonText)) setShowJson(false);
+  };
+
+  const handleJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      setJsonText(text);
+      setShowJson(true);
+      const parsed = applyJsonText(text);
+      if (parsed) showToast(`Loaded ${parsed.weeks.length} week(s) from ${file.name}`);
+    };
+    reader.onerror = () => setJsonError(`Could not read ${file.name}`);
+    reader.readAsText(file);
+  };
+
   const handleSave = async () => {
-    if (!title.trim()) {
+    // If the JSON view is open, it is the source of truth — previously its
+    // contents were silently dropped unless "Apply JSON" was clicked first,
+    // so the plan was saved with no weeks.
+    let current = {
+      type,
+      title,
+      description,
+      totalWeeks: totalWeeks ? parseInt(totalWeeks, 10) : null,
+      weeks,
+    };
+    if (showJson) {
+      const parsed = applyJsonText(jsonText);
+      if (!parsed) {
+        showToast('Fix the JSON errors before saving');
+        return;
+      }
+      current = {
+        type: parsed.type && !isEdit ? parsed.type : type,
+        title: parsed.title ?? title,
+        description: parsed.description !== undefined ? parsed.description ?? '' : description,
+        totalWeeks: parsed.total_weeks !== undefined ? parsed.total_weeks : current.totalWeeks,
+        weeks: parsed.weeks,
+      };
+    }
+
+    if (!current.title.trim()) {
       showToast('Give this plan a title first');
       return;
     }
+    const missingName = current.weeks.some((w) => w.sessions.some((s) => s.prescriptions.some((p) => !p.exercise_name?.trim())));
+    if (missingName) {
+      showToast('Every exercise needs a name');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const cleanWeeks = stripIds(weeks);
+      const cleanWeeks = stripIds(current.weeks);
+      const totalWeeksOut = current.totalWeeks ?? (cleanWeeks.length || null);
       if (isEdit && plan) {
         await updateGymPlan(gymId, plan.id, {
-          title,
-          description: description || null,
-          total_weeks: totalWeeks ? parseInt(totalWeeks, 10) : null,
+          title: current.title,
+          description: current.description || null,
+          total_weeks: totalWeeksOut,
           weeks: cleanWeeks,
         });
-        showToast(`"${title}" updated`);
+        showToast(`"${current.title}" updated`);
       } else {
         await createGymPlan(gymId, {
-          type,
-          title,
-          description: description || null,
-          total_weeks: totalWeeks ? parseInt(totalWeeks, 10) : null,
+          type: current.type,
+          title: current.title,
+          description: current.description || null,
+          total_weeks: totalWeeksOut,
           weeks: cleanWeeks,
         });
-        showToast(`"${title}" created`);
+        showToast(`"${current.title}" created`);
       }
       onSaved();
     } catch (err: any) {
@@ -197,9 +393,15 @@ export function GymPlanEditor({ gymId, plan, onClose, onSaved, showToast }: GymP
 
         <div className="flex items-center justify-between pr-8">
           <h3 className="font-display font-bold text-lg text-white">{isEdit ? `Edit Plan — ${plan!.title}` : 'New Gym Plan'}</h3>
-          <button onClick={showJson ? applyJson : openJsonView} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1.5 border border-zinc-800 px-3 py-1.5 rounded">
-            <FileJson className="w-3.5 h-3.5" /> {showJson ? 'Apply JSON' : 'Edit as JSON'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => jsonFileRef.current?.click()} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1.5 border border-zinc-800 px-3 py-1.5 rounded">
+              <Upload className="w-3.5 h-3.5" /> Load .json file
+            </button>
+            <input ref={jsonFileRef} type="file" accept=".json,application/json" className="hidden" onChange={handleJsonFile} />
+            <button onClick={showJson ? applyJson : openJsonView} className="text-xs font-mono text-zinc-400 hover:text-white flex items-center gap-1.5 border border-zinc-800 px-3 py-1.5 rounded">
+              <FileJson className="w-3.5 h-3.5" /> {showJson ? 'Apply JSON' : 'Edit as JSON'}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -232,6 +434,10 @@ export function GymPlanEditor({ gymId, plan, onClose, onSaved, showToast }: GymP
               className="w-full h-96 bg-[#0A0A0A] border border-[#252525] focus:border-[#CCFF00] rounded-lg p-4 font-mono text-xs text-white resize-y outline-none"
             />
             {jsonError && <p className="text-red-400 text-xs font-mono">{jsonError}</p>}
+            <p className="text-zinc-600 text-[10px] font-mono">
+              Paste the whole plan: {'{ "title", "description", "total_weeks", "type", "weeks": [ { "week_number", "sessions": [ { "session_number", "session_label", "prescriptions": [ { "exercise_name", ... } ] } ] } ] }'}.
+              Aliases like program_name, week, exercises, name, rest and notes are accepted. SAVE PLAN uses this JSON directly.
+            </p>
           </div>
         ) : (
           <div className="space-y-4">

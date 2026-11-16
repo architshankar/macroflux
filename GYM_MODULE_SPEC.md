@@ -470,7 +470,7 @@ optional.
 ### Data model
 
 - `gym_gallery_photos.position` — already exists (§12a). No migration needed.
-- **SQL: migration `056_gym_display_order.sql`** (number is a suggestion; use the next free one):
+- **SQL: migration `058_gym_display_order.sql`** (056 and 057 are already taken in FitnessAppBackend; use the next free number):
   - `gym_equipment.position int NOT NULL DEFAULT 0`
   - `gym_equipment_types.position int NOT NULL DEFAULT 0`
   - Backfill so existing gyms keep their current order:
@@ -874,8 +874,8 @@ New service calls: `listMyGyms` (`GET /admin/my-gyms`), `logoutPanel`.
 
 ### admin-panel — 2026-11-12 — reorder gallery / equipment / equipment types (§12b)
 
-- **Backend not built yet.** §12b is the contract. The admin panel is built against it and shows
-  "not live on the backend yet" (old order put back) until the `PUT .../order` routes exist.
+- **Backend built 2026-11-13** in FitnessAppBackend (migration 058, see its log entry). Before migration 058 is applied and the backend deployed, the admin panel shows
+  "not live on the backend yet" and puts the old order back.
 - `src/adminService.ts`: `reorderGymGallery`, `reorderGymEquipment`,
   `reorderGymEquipmentTypes(gymId, category, ids)`; optional `position` on `GymEquipment` /
   `GymEquipmentType`.
