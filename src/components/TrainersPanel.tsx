@@ -83,11 +83,11 @@ export function TrainersPanel({ showToast }: TrainersPanelProps) {
   const handleToggleBioHidden = async (t: AdminTrainer) => {
     try {
       await setTrainerBioHidden(t.id, !t.bio_hidden);
-      showToast(t.bio_hidden ? 'Bio is now visible' : 'Bio is now hidden');
+      showToast(t.bio_hidden ? 'Trainer is visible to clients again' : 'Trainer is now hidden from clients');
       load();
     } catch (err) {
       console.error(err);
-      showToast('Error updating bio visibility');
+      showToast('Error updating trainer visibility');
     }
   };
 
@@ -276,14 +276,18 @@ export function TrainersPanel({ showToast }: TrainersPanelProps) {
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border ${
                         t.bio_hidden ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                       }`}>
-                        <ShieldCheck className="w-3 h-3" /> {t.bio_hidden ? 'Bio Hidden' : 'Public'}
+                        <ShieldCheck className="w-3 h-3" /> {t.bio_hidden ? 'Hidden' : 'Public'}
                       </span>
                     </td>
                     <td className={`${td} text-right`}>
                       <div className="inline-flex gap-2">
                         <button
                           onClick={() => handleToggleBioHidden(t)}
-                          title={t.bio_hidden ? 'Unhide bio' : 'Hide bio'}
+                          title={
+                            t.bio_hidden
+                              ? 'Show this trainer to clients again'
+                              : 'Hide this trainer from clients (trainer list, gym pages, new requests). Account and existing clients are kept.'
+                          }
                           className="p-1 px-2.5 rounded bg-zinc-900 border border-zinc-800 hover:border-[#CCFF00] text-[#9A9A9A] hover:text-[#CCFF00] flex items-center gap-1.5"
                         >
                           {t.bio_hidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
